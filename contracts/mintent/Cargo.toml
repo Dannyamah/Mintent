@@ -1,0 +1,21 @@
+[package]
+name = "mintent"
+version = "0.1.0"
+edition = "2021"
+description = "Mintent: NEP-171 card-account NFTs whose Solana addresses are controlled via NEAR Chain Signatures"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = { workspace = true }
+near-contract-standards = { workspace = true }
+hex = "0.4"
+
+[dev-dependencies]
+near-sdk = { workspace = true, features = ["unit-testing"] }
+near-workspaces = { version = "0.24.0", features = ["unstable"] }
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"
+anyhow = "1"

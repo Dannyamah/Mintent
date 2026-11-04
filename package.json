@@ -1,0 +1,14 @@
+{
+  "name": "mintent",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Real graded-card packs, paid from any chain, owned as NEAR NFTs.",
+  "license": "MIT",
+  "packageManager": "pnpm@12.8.1",
+  "scripts": {
+    "test:contracts": "cd contracts && cargo test",
+    "build:contracts": "cd contracts/mintent && cargo near build non-reproducible-wasm",
+    "spike:sign": "pnpm --filter @mintent/scripts exec tsx src/spike-s1-sign.ts",
+    "spike:contract": "pnpm --filter @mintent/scripts exec tsx src/spike-s1-contract.ts"
+  }
+}

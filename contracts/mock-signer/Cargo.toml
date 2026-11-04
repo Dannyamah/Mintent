@@ -1,0 +1,13 @@
+[package]
+name = "mock-signer"
+version = "0.1.0"
+edition = "2021"
+description = "Test-only stand-in for the NEAR MPC signer (v1.signer): same `sign` interface, deterministic fake signatures"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = { workspace = true }
