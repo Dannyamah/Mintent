@@ -11,6 +11,33 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-014 · 5 Nov · The relayer reconciles NEAR card records against Solana ownership
+
+- **Why:** the contract can't see Solana. In S1 a card left token 0's address without `record_release`, so NEAR said "Opened" while Solana said otherwise.
+- **Impact:**
+  - Every relayer flow that moves a card calls `record_release` in the same job.
+  - A reconciler (and `pnpm verify:pull`) compares `get_card` with the on-chain asset owner and flags or fixes drift.
+  - The UI shows a card as held only when both agree.
+- **Status:** Adopted.
+
+### D-013 · 5 Nov · Sell-back goes through the signed-quote route (`cc_buyback`), with proceeds landing in the NFT's own address
+
+- **Why:**
+  - It's the only route we build ourselves, so it uses the durable nonce. The quote lives 600 s, so slow MPC signing (up to 71 s) is fine.
+  - It pays into the card's own address, which the NEP-171 holder controls. The NFT literally "owns money" until the holder withdraws it to any address (or chain, via Intents).
+  - The standard `/api/buyback` (CC pays the fee, ~36 s window, supports `altRecipient`) is the fallback.
+- **Impact:** exit flow = sell back → proceeds sit in the card account → owner withdraws (two signatures, durable nonce). The UI and README describe proceeds as held by the NFT.
+- **Status:** Adopted (both routes verified on devnet).
+
+### D-012 · 5 Nov · v1 supports Metaplex Core cards only; pNFT deferred
+
+- **Why:** all 15 sampled mainnet $50/$100 prizes and every devnet prize were Core. pNFT transfers need Token Metadata, rule sets and lookup tables, which is days of work for cards we won't get.
+- **Impact:**
+  - Relayer and UI handle `core`.
+  - Any other standard is shown as "withdraw only via Collector Crypt" and the transfer is blocked.
+  - The pNFT decision point in PLAN.md is retired.
+- **Status:** Adopted.
+
 ### D-011 · 5 Nov · Mintent-built Solana transactions use a durable nonce; CC-built ones retry on expiry
 
 - **Why:** devnet's blockhash window is about 36 s and MPC latency ranges from 12 s to over 46 s. A transaction needing two MPC signatures (card owner plus treasury fee payer) expired after 35.6 s; the same transfer with a durable nonce succeeded after 39.8 s of signing.

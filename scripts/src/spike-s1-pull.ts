@@ -43,7 +43,7 @@ async function contractSign(method: "sign_for_treasury" | "sign_for_card", msg: 
 }
 
 async function sendSigned(tx: VersionedTransaction): Promise<string> {
-  const sig = await sol.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 5 });
+  const sig = await sol.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 5n });
   for (let i = 0; i < 60; i++) {
     const st = (await sol.getSignatureStatuses([sig])).value[0];
     if (st?.err) throw new Error(`tx ${sig} failed: ${JSON.stringify(st.err)}`);

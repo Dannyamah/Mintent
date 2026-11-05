@@ -93,7 +93,7 @@ Evidence:
 
 ### Blocker 3: that address can buy from and list on a marketplace by signing API-built transactions
 
-**Status: UNKNOWN for CC (strong evidence it works); gated for Magic Eden and Tensor.**
+**Status: VERIFIED on devnet for Collector Crypt (5 Nov):** pack purchase, standard buyback, `cc_buyback` sellback, marketplace list and cancel, all signed via the contract. Magic Eden and Tensor remain gated behind API keys and are out of scope (D-004). A marketplace *buy* was not tested, because we don't need it for the demo. The original assessment follows.
 
 Evidence:
 - The CC marketplace API is **keyless** and returns an unsigned transaction for `wallet`. It has a devnet (`dev-api.collectorcrypt.com`) and sponsors fees when the wallet has no SOL ([Marketplace API](https://docs.collectorcrypt.com/marketplace/api)).
@@ -144,7 +144,21 @@ Caveat: insured value is CC's own reference value, not a market price ([Jupiter 
 | **S1 full pull (5 Nov)** via `app2.mintent-dev-mw21w9ki.testnet` | (1) Devnet SOL to the treasury: 3 Tidepool swaps of 0.005 SOL each, SUCCESS. (2) Treasury claimed 100 USDC-Dev from the spl-token-faucet program (`4sN8PnN2…`, Anchor `airdrop`, bump 255), signed via `sign_for_treasury`. (3) `mint_pack` → token `0`, card address `2nzGyNMYVzjZAAARMTx3aS4nHk3VwGkQzY8xCuga38e6`. (4) CC `pokemon_25` bought with `altPlayerAddress` = card address: MPC 11.7 s, end to end 14.3 s, tx `5FtoM6sR…UFM6T`. (5) `openPack` → Core asset `44zam74dQs2GgESFg3bD7TMHAaCtonZ4B4YPXzd367X2` ("2003 #110 Sneasel PSA 9", Common, insured $21.69), **owned by the card address** (delivery tx `62dEshaS…bYSg6`). (6) `record_open` on NEAR. (7) mpl-core `TransferV1` out of the card address: `sign_for_card` (owner) + `sign_for_treasury` (fee payer) with a **durable nonce**, tx `3GZJ4AqtEYA1ZfU7raaGjUs5oV9yQTdUsJcMenS9rGzFhb9irgr1VysKAerUdq8K1hqkAadiRfFsqtW9tEj2F1fg`. |
 | Devnet timing | Devnet produces about **4.1 blocks/s**, so a blockhash is valid for about **36 s** (not ~60 s). MPC latency has a **long tail: one signature took 46.6 s** (typical 11.7–13.6 s). The first card-transfer attempt with a normal blockhash expired after 35.6 s of signing; the durable-nonce version took 39.8 s to collect both signatures and succeeded. |
 
-**Blocker 1 is VERIFIED on devnet for Core cards** (5 Nov). pNFT cards are still untested: the devnet machine delivered a Core asset. Blocker 3 remains UNKNOWN. MPC latency is **within the window with about 5–15 s of margin**, so the hot-key fallback is not needed so far.
+### Spike S2 log (5 Nov, devnet / testnet)
+
+| Test | Result |
+| --- | --- |
+| Mainnet card standard (read-only) | All **15** recent mainnet prizes from `pokemon_50`, `ghost_50` and `pokemon_100` are **Metaplex Core** (`getRecentWinners` plus on-chain account owner). |
+| A: handover | Token 1 `nft_transfer` dev → `mintent-bob-77081.testnet`. The old owner's `sign_for_card` was **rejected on-chain**: "only the token owner can sign for this card". |
+| A: `cc_buyback` sellback by the new owner | Quote (600 s) → our v0 transaction with a durable nonce: compute limit, CC's Ed25519 quote instruction, create the card address's USDC-Dev ATA, mpl-core TransferV1 to `destinationOwner`, `authorize_and_pay`. **12.75 USDC (85% of $15) paid into the card's own address**, tx `2mGPiUUv…JFidzDc`. Gotcha: `authorize_and_pay`'s memo argument must be **`quote.memo` ("…:buyback")**; the pack memo fails with `Ed25519MessageMismatch` (6017). |
+| A: withdraw | Bob moved the 12.75 USDC from the card address to his own Chain Signatures Solana address `4em3ZD38jNFV8PFfxjM2b4Bk7KyoA3aV49rtEcV3p9Zm`, tx `2rVt6jyy…k9JfJ`. Signing took **58 s** (two MPC signatures; the nonce made it safe). |
+| B: standard `/api/buyback` | CC-built transaction (**CC's gacha wallet pays the fee**). One MPC signature (12.1 s), first attempt. **17.85 USDC** to the card address, tx `54cNQyrs…riaiShR`. This route also supports `altRecipient` for a direct payout. |
+| C: marketplace list | `POST dev-api…/marketplace/list` → transaction **fee-sponsored and pre-signed by CC** (`5z79…`). One MPC signature (22.3 s), broadcast via `/marketplace/broadcast`. Listing **Active at 30 USDC**, tx `4BcVd929…nkooQCV` (the pack purchase before it needed 2 attempts; the automatic rebuild handled it). |
+| C: cancel listing | No REST builder exists. Built `cancel_core_listing` from the marketplace program's **on-chain Anchor IDL** (`CcmRKTuZCGJBWQwMHvDYApBRvSZNHqGJXkznqpDTSQUr`; rent_receiver = `listing.rent_payer` at bytes 130..162). Listing account closed and the API shows no listing, tx `a8uWAqrK…ooQCV`. Signing took **71 s**. |
+| State check | NEAR `get_card` vs Solana asset owner: tokens 1 and 2 Released ↔ owned by CC; token 3 Opened ↔ owned by `card/3`. **Token 0 had drifted** (Opened on NEAR but already moved on Solana, because S1 never called `record_release`); fixed. |
+| MPC latency (all S1+S2 contract signatures) | 11.7, 12.1, 12.3, 12.7, 13.2, 13.6, 22.3, 24.4, 26.6, **46.6** s, plus two-signature collections of 39.8, 58 and **71 s**. |
+
+**Blocker 1 is VERIFIED on devnet for Core cards** (5 Nov), and mainnet $50/$100 packs deliver Core. pNFT cards are still untested: the devnet machine delivered a Core asset. Blocker 3 remains UNKNOWN. MPC latency is **within the window with about 5–15 s of margin**, so the hot-key fallback is not needed so far.
 
 ## 4. Regulatory (flag, don't solve)
 

@@ -281,7 +281,12 @@ https://docs.collectorcrypt.com/vault/shipping-api and https://docs.jup.ag/user-
 - Token `0` card address (path `card/0`): `2nzGyNMYVzjZAAARMTx3aS4nHk3VwGkQzY8xCuga38e6`
 - **USDC-Dev faucet:** the Anchor program `4sN8PnN2ki2W4TFXAfzR645FWs8nimmsYeNtxM8RBK6A`, instruction `airdrop(mint_bump=255, amount)` with accounts mint, destination ATA, payer, receiver, system, token, ATA, rent. [V 5 Nov]
 - **CC devnet `pokemon_25` delivers Metaplex Core assets** (program `CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d`). [V 5 Nov, one sample]
-- **Devnet blockhash window ≈ 36 s** (about 4.1 blocks/s). **MPC latency tail ≥ 46 s** (typical 12–14 s). [V 5 Nov]
+- Second test account (new owner in tests): `mintent-bob-77081.testnet`. Its own Chain Signatures Solana address (path `solana-1`): `4em3ZD38jNFV8PFfxjM2b4Bk7KyoA3aV49rtEcV3p9Zm`
+- **Mainnet $50/$100 CC prizes are Metaplex Core** (15/15 sampled, 5 Nov). [V 5 Nov]
+- **`cc_buyback`:** pays **into the seller address (the card's own address)**; `altRecipient` is not supported in quote mode. The `authorize_and_pay` memo must be `quote.memo`. Devnet quotes come with `addressLookupTable: null` (Core fits without one). [V 5 Nov]
+- **Standard `/api/buyback`:** CC pays the fee and the owner signs once; `altRecipient` is supported. [V 5 Nov]
+- **CC marketplace:** `list` returns a CC-sponsored, pre-signed transaction (one signature for us). There's no REST cancel; use `cancel_core_listing` (discriminator `[58,30,81,251,75,37,173,211]`) from the on-chain IDL of `CcmRKTuZCGJBWQwMHvDYApBRvSZNHqGJXkznqpDTSQUr`. [V 5 Nov]
+- **Devnet blockhash window ≈ 36 s** (about 4.1 blocks/s). **MPC latency: typically 12–14 s per signature, tail ≥ 46 s; two-signature collections took 40–71 s.** [V 5 Nov]
 
 ## 4. Mintent scope (revised, pending user decision)
 

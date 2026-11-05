@@ -17,7 +17,8 @@ Last updated: **5 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 | Testnet deploy | `app2.mintent-dev-mw21w9ki.testnet` (current build, with `order_id`) |
 | MPC signing of real CC devnet pack transactions | **Works.** Typically 11.7–13.6 s, but the **tail reaches 46.6 s**. The devnet blockhash window is only about 36 s. |
 | Blocker 1 (receive and transfer a CC card) | **VERIFIED on devnet (Core card), 5 Nov.** Real pull into the `card/0` address, then moved out using the owner's contract signature plus a treasury fee payer with a durable nonce. pNFT is untested. |
-| Blocker 3 (marketplace and buyback by signed API transactions) | **Open.** |
+| Blocker 3 (marketplace and buyback by signed API transactions) | **VERIFIED on devnet (5 Nov):** standard buyback, `cc_buyback` sellback by a *new* owner after a NEAR transfer (old owner refused), withdrawal to the owner's own address, marketplace list and cancel. |
+| Card standard | Mainnet $50/$100 prizes are Core (15/15), so pNFT support is out of scope (D-012). |
 | Blocker 2 (redemption) | **Open.** Needs a CC `partnerSlug`. |
 | Blocker 4 (pricing) | **Verified.** |
 
@@ -74,8 +75,8 @@ Own inventory, own odds, a pricing engine, Magic Eden/Tensor connectors, OutLaye
 | Day | Goal | Exit criteria |
 | --- | --- | --- |
 | **Wed 5 Nov** | Finish Spike S1 ✅ (done) | Redeploy the contract to a fresh testnet sub-account. Get devnet SOL to the treasury (Tidepool intents faucet, then a 0.005 SOL withdrawal, or faucet.solana.com). Get USDC-Dev (`Gh9Zw…KtJr`) for the treasury. Pay for and open a CC devnet `pokemon_25` with the card going to `card/<id>`. **Transfer the card out with an owner-requested contract signature.** Record the card standard (Core, pNFT or cNFT). |
-| **Thu 6 Nov** | Spike S2 and decision points | Buyback of the S1 card by the token owner, via `/api/buyback` and via a `cc_buyback` quote. List and cancel on the CC devnet marketplace via the contract. **12:00 and 18:00 decisions (below).** Start `packages/checkout` against Tidepool: quote, deposit, status, refund, appFees. |
-| **Fri 7 Nov** | Relayer pipeline | `services/relayer` order state machine (SQLite), from checkout SUCCESS to `record_open`. Retry when the blockhash expires. Idempotent by `order_id`. Checkout package complete with the Tidepool and mock backends, including Tidepool's simulated failures. |
+| **Thu 6 Nov** | Spike S2 ✅ (done 5 Nov), then start checkout | Buyback of the S1 card by the token owner, via `/api/buyback` and via a `cc_buyback` quote. List and cancel on the CC devnet marketplace via the contract. **12:00 and 18:00 decisions (below).** Start `packages/checkout` against Tidepool: quote, deposit, status, refund, appFees. |
+| **Fri 7 Nov** | Relayer pipeline (+ reconciler, D-014) | `services/relayer` order state machine (SQLite), from checkout SUCCESS to `record_open`. Retry when the blockhash expires. Idempotent by `order_id`. Checkout package complete with the Tidepool and mock backends, including Tidepool's simulated failures. |
 | **Sat 8 Nov** | Headless end-to-end | `pnpm demo:testnet` passes from a clean clone: checkout → mint → buy → open → transfer → sell back by the new owner → old owner refused. `pnpm verify:pull` written. Withdraw-to-wallet if time allows. |
 | **Sun 9 Nov** | Web app v1 | Privy sign-in, pack shop (neutral names; live odds, EV and buyback from `/api/machines`), checkout UI, reveal, card page with proof panel, transfer, sell back. Runs against testnet and devnet. |
 | **Mon 10 Nov** | Mainnet readiness | Mainnet config, 1Click partner key with `appFees`. `dry: true` quotes for BTC→Solana USDC and SOL→Solana USDC. **(approval)** Deploy the contract to mainnet. Merchant checkout demo page if ahead of schedule. |
@@ -87,8 +88,8 @@ Own inventory, own odds, a pricing engine, Magic Eden/Tensor connectors, OutLaye
 ### Decision points
 
 - **Durable nonces (adopted 5 Nov, D-011):** every Solana transaction Mintent builds uses the treasury's durable nonce. CC-built partially signed transactions (purchase, `/api/buyback`) can't, so on expiry the relayer requests a fresh transaction and retries (unpaid packs simply expire).
-- **6 Nov 12:00, MPC latency.** Now: 12.3–13.6 s through the contract, inside the window. Switch the purchaser to a hot key (with `altPlayerAddress` still set to the MPC card address) **only if** more than 1 in 5 S1/S2 purchases miss the window. Buybacks use `cc_buyback` quotes (600 s) when CC's ~30 s window is missed.
-- **6 Nov 18:00, Blocker 1 (card transfer from the derived address):** if the pNFT transfer fails, try v0 transactions with lookup tables and the CC rule-set accounts. If it still fails, restrict to Core or cNFT machines. If those fail too, switch to a contract-held vault address (`vault`) with NEP-171 claims.
+- **MPC latency:** resolved. Measured 12–46 s per signature and 40–71 s for two. CC purchases retry on expiry (1 of 4 needed a retry); everything we build uses durable nonces (D-011); sell-back uses `cc_buyback` quotes (D-013). No hot key needed.
+- **6 Nov 18:00, Blocker 1:** resolved 5 Nov. Core transfer from the derived address works; mainnet prizes are Core, so pNFT is out of scope (D-012).
 - **7 Nov, CC devnet or Tidepool unavailable:** build against recorded fixtures and a mock server for the AI-judge path. The mainnet run remains the proof.
 - **Testnet token mismatch (fixed rule):** Tidepool's devnet USDC (`7paf…r4Xr`) ≠ CC's devnet USDC-Dev. On testnet the treasury is pre-stocked with USDC-Dev, and the checkout settlement is recorded but not spent. On mainnet both are real USDC and the checkout payment funds the pack. The README states this.
 - **10 Nov, no `partnerSlug`:** ship withdraw-to-wallet, then redeem on collectorcrypt.com, and say so in the README.

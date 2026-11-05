@@ -37,7 +37,7 @@ export async function deriveSolanaAddress(network: NearNetwork, predecessor: str
 /** Ask the MPC network to sign `message` (raw bytes, 32..1232) with the key at `path`. Returns the 64-byte signature. */
 export async function mpcSignEd25519(account: Account, network: NearNetwork, path: string, message: Uint8Array): Promise<Uint8Array> {
   if (message.length < 32 || message.length > 1232) throw new Error(`EdDSA payload must be 32..1232 bytes, got ${message.length}`);
-  const res = await account.callFunction<unknown>({
+  const res = await account.callFunction<Record<string, unknown>>({
     contractId: NETWORKS[network].mpc,
     methodName: "sign",
     args: { request: { payload_v2: { Eddsa: Buffer.from(message).toString("hex") }, path, domain_id: ED25519_DOMAIN } },
