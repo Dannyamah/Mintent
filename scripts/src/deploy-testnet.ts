@@ -18,7 +18,7 @@ const credFile = join(credDir, `${contractId}.json`);
 const devAccount = loadAccount("testnet", dev);
 if (!existsSync(credFile)) {
   const kp = KeyPair.fromRandom("ed25519");
-  await devAccount.createSubAccount({ accountOrPrefix: contractId, publicKey: kp.getPublicKey(), nearToTransfer: nearToYocto(5) } as never);
+  await devAccount.createSubAccount({ accountOrPrefix: contractId, publicKey: kp.getPublicKey(), nearToTransfer: nearToYocto(Number(process.env.FUND_NEAR ?? 3.5)) } as never);
   mkdirSync(credDir, { recursive: true });
   writeFileSync(credFile, JSON.stringify({ account_id: contractId, public_key: kp.getPublicKey().toString(), private_key: kp.toString() }), { mode: 0o600 });
   console.log("created", contractId);

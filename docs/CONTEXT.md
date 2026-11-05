@@ -138,6 +138,21 @@ Docs: https://docs.near-intents.org (index: /llms.txt; changelog: /changelog/ove
 - **Explorer API:** https://explorer.near-intents.org/api/v0/openapi.yaml [V 4 Nov, link exists; not exercised]
 - **Testnet:** none (HACKATHON.md Q-007). [V 4 Nov]
 
+### 2.3a Tidepool (community testnet 1Click), checked 5 Nov
+
+Sources: https://www.usetidepool.tech/llms.txt, /docs/resources/trust-model, /docs/resources/compatibility
+
+- **What it is:** a 1Click-compatible API at `https://www.usetidepool.tech`. It runs the unmodified `defuse` v0.4.5 verifier at `verifier.tidepool-sandbox.testnet` on NEAR testnet, with one Tidepool maker setting all prices. Community-built by @realchriswilder; **not affiliated** with NEAR, Defuse or 1Click. [V 5 Nov]
+- **SDK and auth:** the official `@defuse-protocol/one-click-sdk-typescript` works by changing the base URL. No API key is needed; any key value is accepted. [V 5 Nov]
+- **Test bridges** (Tidepool-run, custodial relayer, no proofs): Base, Arbitrum and Ethereum Sepolia; **Solana devnet** (Tidepool's own USDC mint `7pafEGXSmR35rLKNaD6inpfLYuEnRX9DyBc1c7M8r4Xr`, SOL capped at 0.005 per swap); **Bitcoin testnet4** (tBTC capped at 0.005); Stellar; Sui; XRP. [V 5 Nov]
+- **Faucet:** `POST /v0/faucet`. `{"chain":"sol","address":…}` mints 100 test USDC and USDT, but no SOL. Intents mode with `assets:["sol"]` gives 0.05 test SOL inside the verifier. Limit: one drip per account per mode per hour. [V 5 Nov]
+- **Differences from mainnet:**
+  - No confidential settlement (`CONFIDENTIAL_INTENTS` returns 400), so swaps settle publicly, unlike mainnet since 27 Oct.
+  - A single maker with finite inventory.
+  - State lives in a JSON file on one server, with no SLA.
+  - [V 5 Nov]
+- **Incompatibility with CC devnet:** Tidepool's Solana USDC is **not** CC devnet's USDC-Dev (`Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr`). [V 5 Nov]
+
 ### 2.4 OutLayer
 
 Docs: https://app.outlayer.ai/docs, full text at https://app.outlayer.ai/llms-full.txt. The old URL outlayer.fastnear.com/docs 301-redirects there. [V 4 Nov]
@@ -257,12 +272,16 @@ https://docs.collectorcrypt.com/vault/shipping-api and https://docs.jup.ag/user-
 
 ---
 
-## 3.7 Our testnet setup (4 Nov)
+## 3.7 Our testnet setup (updated 5 Nov)
 
-- Dev account: `mintent-dev-mw21w9ki.testnet` (throwaway; key in `~/.near-credentials/testnet/`)
-- Contract: `app.mintent-dev-mw21w9ki.testnet` (owner = relayer = dev account; MPC = `v1.signer-prod.testnet`)
-- Contract treasury Solana address (path `treasury`): `BtFpGgWZ8QXMo5vsggu5ZgScj9H6ysjDU6DLN7qrMQvA`
-- Token `0` card address (path `card/0`): `816XrZMq42UopEcQCXAeD4m3YEDisJcoLdh4bfaLcA2r`
+- Dev account (owner and relayer): `mintent-dev-mw21w9ki.testnet` (throwaway; key in `~/.near-credentials/testnet/`)
+- **Current contract: `app2.mintent-dev-mw21w9ki.testnet`** (MPC = `v1.signer-prod.testnet`). `app.` is retired (old storage layout).
+- Treasury Solana address (path `treasury`): `AS7zGp3xhVPkiJjPrPAPL4EBWcijLW5tQvZ4FEk1XkAv`. It holds devnet SOL (via Tidepool) and USDC-Dev.
+- Treasury durable-nonce account (seed `mintent-nonce-1`): `8faHKnvoQibuqYtd6BRSa6LYXtx69bHJ4FooWvxwz3H`
+- Token `0` card address (path `card/0`): `2nzGyNMYVzjZAAARMTx3aS4nHk3VwGkQzY8xCuga38e6`
+- **USDC-Dev faucet:** the Anchor program `4sN8PnN2ki2W4TFXAfzR645FWs8nimmsYeNtxM8RBK6A`, instruction `airdrop(mint_bump=255, amount)` with accounts mint, destination ATA, payer, receiver, system, token, ATA, rent. [V 5 Nov]
+- **CC devnet `pokemon_25` delivers Metaplex Core assets** (program `CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d`). [V 5 Nov, one sample]
+- **Devnet blockhash window ≈ 36 s** (about 4.1 blocks/s). **MPC latency tail ≥ 46 s** (typical 12–14 s). [V 5 Nov]
 
 ## 4. Mintent scope (revised, pending user decision)
 

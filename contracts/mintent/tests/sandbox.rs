@@ -32,7 +32,7 @@ async fn owner_signs_transfer_moves_rights() -> anyhow::Result<()> {
     // Relayer mints a sealed pack to alice.
     let token_id: String = relayer
         .call(mintent.id(), "mint_pack")
-        .args_json(json!({ "receiver_id": alice.id(), "pack_type": "pokemon_25" }))
+        .args_json(json!({ "order_id": "order-0", "receiver_id": alice.id(), "pack_type": "pokemon_25" }))
         .max_gas()
         .transact()
         .await?

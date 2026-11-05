@@ -18,7 +18,7 @@ function sigFrom(res: unknown): Uint8Array {
   return Uint8Array.from(r.signature);
 }
 
-const tokenId = await account.callFunction<string>({ contractId, methodName: "mint_pack", args: { receiver_id: dev, pack_type: "pokemon_25" }, gas: 100_000_000_000_000n });
+const tokenId = await account.callFunction<string>({ contractId, methodName: "mint_pack", args: { order_id: `spike-${Date.now()}`, receiver_id: dev, pack_type: "pokemon_25" }, gas: 100_000_000_000_000n });
 const treasury = await deriveSolanaAddress("testnet", contractId, "treasury");
 const card = await deriveSolanaAddress("testnet", contractId, `card/${tokenId}`);
 console.log({ tokenId, treasury, card });

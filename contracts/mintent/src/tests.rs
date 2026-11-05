@@ -50,7 +50,7 @@ fn setup() -> Contract {
     ctx(owner(), 0);
     let mut c = Contract::new(owner(), relayer(), MPC.parse().unwrap());
     ctx(relayer(), 0);
-    let id = c.mint_pack(alice(), "pokemon_25".into());
+    let id = c.mint_pack("order-0".into(), alice(), "pokemon_25".into());
     assert_eq!(id, "0");
     c
 }
@@ -69,7 +69,7 @@ fn mint_creates_sealed_card_with_path() {
 fn only_relayer_can_mint() {
     let mut c = setup();
     ctx(alice(), 0);
-    c.mint_pack(alice(), "pokemon_25".into());
+    c.mint_pack("order-x".into(), alice(), "pokemon_25".into());
 }
 
 #[test]
@@ -207,4 +207,19 @@ fn only_owner_sets_relayer() {
     let mut c = setup();
     ctx(alice(), 0);
     c.set_relayer(alice());
+}
+
+#[test]
+#[should_panic(expected = "order already minted")]
+fn same_order_cannot_mint_twice() {
+    let mut c = setup();
+    ctx(relayer(), 0);
+    c.mint_pack("order-0".into(), bob(), "pokemon_25".into());
+}
+
+#[test]
+fn order_maps_to_token() {
+    let c = setup();
+    assert_eq!(c.get_order_token("order-0".into()).as_deref(), Some("0"));
+    assert_eq!(c.get_order_token("nope".into()), None);
 }

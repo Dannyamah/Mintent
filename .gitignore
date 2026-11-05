@@ -7,3 +7,4 @@ target/
 .secrets/
 *.log
 .DS_Store
+scripts/.spike-*.json

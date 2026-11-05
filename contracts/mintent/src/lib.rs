@@ -43,6 +43,7 @@ enum StorageKey {
     NftMetadata,
     NftEnumeration,
     Cards,
+    Orders,
 }
 
 #[near(serializers = [borsh, json])]
@@ -107,6 +108,8 @@ pub struct Contract {
     mpc_contract_id: AccountId,
     tokens: NonFungibleToken,
     cards: LookupMap<TokenId, CardRecord>,
+    /// Settled checkout order id (1Click deposit address) -> token minted for it. Prevents double mints.
+    orders: LookupMap<String, TokenId>,
     next_token_id: u64,
 }
 
@@ -123,6 +126,7 @@ impl Contract {
                 None::<StorageKey>,
             ),
             cards: LookupMap::new(StorageKey::Cards),
+            orders: LookupMap::new(StorageKey::Orders),
             owner_id,
             relayer_id,
             mpc_contract_id,
@@ -149,9 +153,13 @@ impl Contract {
 
     // ---------- pack lifecycle (relayer) ----------
 
-    /// Mint a sealed pack token to `receiver_id`. Storage is paid by the contract.
-    pub fn mint_pack(&mut self, receiver_id: AccountId, pack_type: String) -> TokenId {
+    /// Record a settled checkout order and mint its sealed pack token to `receiver_id`.
+    /// `order_id` is the 1Click deposit address of the paid quote; each order mints exactly once.
+    /// Storage is paid by the contract.
+    pub fn mint_pack(&mut self, order_id: String, receiver_id: AccountId, pack_type: String) -> TokenId {
         self.assert_relayer();
+        require!(!order_id.is_empty() && order_id.len() <= 128, "invalid order_id");
+        require!(!self.orders.contains_key(&order_id), "order already minted");
         let token_id = self.next_token_id.to_string();
         self.next_token_id += 1;
         let metadata = TokenMetadata {
@@ -163,6 +171,7 @@ impl Contract {
             ..empty_metadata()
         };
         self.tokens.internal_mint_with_refund(token_id.clone(), receiver_id.clone(), Some(metadata), None);
+        self.orders.insert(order_id.clone(), token_id.clone());
         self.cards.insert(
             token_id.clone(),
             CardRecord {
@@ -176,7 +185,7 @@ impl Contract {
                 release_reason: None,
             },
         );
-        emit("pack_minted", json!({ "token_id": token_id, "owner_id": receiver_id, "pack_type": pack_type, "solana_path": card_path_for(&token_id) }));
+        emit("pack_minted", json!({ "token_id": token_id, "order_id": order_id, "owner_id": receiver_id, "pack_type": pack_type, "solana_path": card_path_for(&token_id) }));
         token_id
     }
 
@@ -256,6 +265,10 @@ impl Contract {
     }
 
     // ---------- views ----------
+
+    pub fn get_order_token(&self, order_id: String) -> Option<TokenId> {
+        self.orders.get(&order_id).cloned()
+    }
 
     pub fn card_path(&self, token_id: TokenId) -> String {
         card_path_for(&token_id)

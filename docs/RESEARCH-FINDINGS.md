@@ -53,7 +53,7 @@ None of these were executed today, because that requires devnet or testnet trans
 
 ### Blocker 1: a Chain Signatures-controlled Solana address can receive and transfer CC NFTs
 
-**Status: UNKNOWN (strong evidence it works; no transaction executed yet).**
+**Status: VERIFIED on devnet for Metaplex Core cards (5 Nov; see the spike log). pNFT is not yet tested.** The original assessment follows.
 
 Evidence:
 - A Chain Signatures Solana address is an ordinary on-curve Ed25519 key (not a PDA), derived via `derived_public_key(path, predecessor, 1)` ([MPC README](https://github.com/near/mpc/blob/main/crates/contract/README.md)).
@@ -141,8 +141,10 @@ Caveat: insured value is CC's own reference value, not a market price ([Jupiter 
 | CC devnet `generatePack` transaction shape | Legacy transaction. **CC's gacha wallet is the fee payer and has already signed.** The player signs only a USDC-Dev (`Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr`) TransferChecked. The buyer needs no SOL. |
 | Contract tests | 16 unit tests plus 1 sandbox end-to-end test (mock signer) pass. Transfer moves signing rights; the previous owner is rejected. |
 | Solana devnet airdrop | `requestAirdrop` is closed ("faucet closed on this cluster"). Devnet SOL now comes only from https://faucet.solana.com (web). |
+| **S1 full pull (5 Nov)** via `app2.mintent-dev-mw21w9ki.testnet` | (1) Devnet SOL to the treasury: 3 Tidepool swaps of 0.005 SOL each, SUCCESS. (2) Treasury claimed 100 USDC-Dev from the spl-token-faucet program (`4sN8PnN2…`, Anchor `airdrop`, bump 255), signed via `sign_for_treasury`. (3) `mint_pack` → token `0`, card address `2nzGyNMYVzjZAAARMTx3aS4nHk3VwGkQzY8xCuga38e6`. (4) CC `pokemon_25` bought with `altPlayerAddress` = card address: MPC 11.7 s, end to end 14.3 s, tx `5FtoM6sR…UFM6T`. (5) `openPack` → Core asset `44zam74dQs2GgESFg3bD7TMHAaCtonZ4B4YPXzd367X2` ("2003 #110 Sneasel PSA 9", Common, insured $21.69), **owned by the card address** (delivery tx `62dEshaS…bYSg6`). (6) `record_open` on NEAR. (7) mpl-core `TransferV1` out of the card address: `sign_for_card` (owner) + `sign_for_treasury` (fee payer) with a **durable nonce**, tx `3GZJ4AqtEYA1ZfU7raaGjUs5oV9yQTdUsJcMenS9rGzFhb9irgr1VysKAerUdq8K1hqkAadiRfFsqtW9tEj2F1fg`. |
+| Devnet timing | Devnet produces about **4.1 blocks/s**, so a blockhash is valid for about **36 s** (not ~60 s). MPC latency has a **long tail: one signature took 46.6 s** (typical 11.7–13.6 s). The first card-transfer attempt with a normal blockhash expired after 35.6 s of signing; the durable-nonce version took 39.8 s to collect both signatures and succeeded. |
 
-Blockers 1 and 3 remain **UNKNOWN** until a pack is paid, opened and the card moved, which needs devnet SOL and USDC-Dev. MPC latency is **within the window with about 5–15 s of margin**, so the hot-key fallback is not needed so far.
+**Blocker 1 is VERIFIED on devnet for Core cards** (5 Nov). pNFT cards are still untested: the devnet machine delivered a Core asset. Blocker 3 remains UNKNOWN. MPC latency is **within the window with about 5–15 s of margin**, so the hot-key fallback is not needed so far.
 
 ## 4. Regulatory (flag, don't solve)
 
