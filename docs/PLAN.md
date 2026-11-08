@@ -1,13 +1,13 @@
 # Mintent: Build Plan (5 Nov to 14 Nov 2026, 23:59 UTC)
 
-Last updated: **5 Nov 2026**. All dates and times are UTC. Anything marked **(approval)** needs your explicit OK first.
+Last updated: **8 Nov 2026**. All dates and times are UTC. Anything marked **(approval)** needs your explicit OK first.
 
 **Design:** Mintent is a NEAR front end to Collector Crypt (CC) packs (`RESEARCH-FINDINGS.md` section 5.2).
 - You pay for each pack through a NEAR Intents checkout, from any chain.
 - Each pull becomes a NEP-171 token on NEAR whose Chain Signatures-derived Solana address holds the real card.
 - Transferring the token transfers control of the card.
 
-## Status (5 Nov)
+## Status (8 Nov)
 
 | Item | State |
 | --- | --- |
@@ -19,6 +19,11 @@ Last updated: **5 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 | Blocker 1 (receive and transfer a CC card) | **VERIFIED on devnet (Core card), 5 Nov.** Real pull into the `card/0` address, then moved out using the owner's contract signature plus a treasury fee payer with a durable nonce. pNFT is untested. |
 | Blocker 3 (marketplace and buyback by signed API transactions) | **VERIFIED on devnet (5 Nov):** standard buyback, `cc_buyback` sellback by a *new* owner after a NEAR transfer (old owner refused), withdrawal to the owner's own address, marketplace list and cancel. |
 | Card standard | Mainnet $50/$100 prizes are Core (15/15), so pNFT support is out of scope (D-012). |
+| Contract hardening | **Done 8 Nov.** Signing policy and transfer locks after the pre-sign attack was proven (D-015, `THREAT-MODEL.md`). 46 unit tests and a sandbox run. |
+| `packages/checkout`, `services/relayer` | **Done 8 Nov.** 7 + 31 tests. HTTP API smoke-tested. |
+| `pnpm demo:testnet` | **Passes from nothing: 23/23 checks in 6.3 min on real networks** (`EVIDENCE.md`). |
+| Web app | **Not started.** |
+| Mainnet | **Nothing run yet.** Dry quotes only. |
 | Blocker 2 (redemption) | **Open.** Needs a CC `partnerSlug`. |
 | Blocker 4 (pricing) | **Verified.** |
 
@@ -60,9 +65,9 @@ Last updated: **5 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 ### Nice-to-have (in this order, only after the must-haves)
 
 1. "Withdraw to my Solana wallet" (cheap; also the redemption fallback).
-2. A **"pay from any chain" checkout demo page for a non-Mintent merchant**, reusing `packages/checkout`. This answers Illia's "universal checkout" idea and supports a `realworld` entry.
+2. A **"pay from any chain" checkout demo page for a non-Mintent merchant**, reusing `packages/checkout`. This answers Illia's "universal checkout" idea and supports a `realworld` entry. Drop it if behind schedule.
 3. In-app redemption (needs a CC `partnerSlug`).
-4. List and cancel on the CC marketplace.
+4. ~~List and cancel on the CC marketplace.~~ Removed: a listing survives an NFT sale (D-016). Withdraw the card first, then list.
 5. Cash-out to any chain via Intents.
 6. NEAR Auth passkeys (mainnet approval). EVM-chain CC packs. Hosted demo kept up until 25 Nov.
 
@@ -70,20 +75,17 @@ Last updated: **5 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 
 Own inventory, own odds, a pricing engine, Magic Eden/Tensor connectors, OutLayer VRF, in-contract user balances.
 
-## Day-by-day plan
+## Day-by-day plan (re-baselined 8 Nov)
 
 | Day | Goal | Exit criteria |
 | --- | --- | --- |
-| **Wed 5 Nov** | Finish Spike S1 ✅ (done) | Redeploy the contract to a fresh testnet sub-account. Get devnet SOL to the treasury (Tidepool intents faucet, then a 0.005 SOL withdrawal, or faucet.solana.com). Get USDC-Dev (`Gh9Zw…KtJr`) for the treasury. Pay for and open a CC devnet `pokemon_25` with the card going to `card/<id>`. **Transfer the card out with an owner-requested contract signature.** Record the card standard (Core, pNFT or cNFT). |
-| **Thu 6 Nov** | Spike S2 ✅ (done 5 Nov), then start checkout | Buyback of the S1 card by the token owner, via `/api/buyback` and via a `cc_buyback` quote. List and cancel on the CC devnet marketplace via the contract. **12:00 and 18:00 decisions (below).** Start `packages/checkout` against Tidepool: quote, deposit, status, refund, appFees. |
-| **Fri 7 Nov** | Relayer pipeline (+ reconciler, D-014) | `services/relayer` order state machine (SQLite), from checkout SUCCESS to `record_open`. Retry when the blockhash expires. Idempotent by `order_id`. Checkout package complete with the Tidepool and mock backends, including Tidepool's simulated failures. |
-| **Sat 8 Nov** | Headless end-to-end | `pnpm demo:testnet` passes from a clean clone: checkout → mint → buy → open → transfer → sell back by the new owner → old owner refused. `pnpm verify:pull` written. Withdraw-to-wallet if time allows. |
-| **Sun 9 Nov** | Web app v1 | Privy sign-in, pack shop (neutral names; live odds, EV and buyback from `/api/machines`), checkout UI, reveal, card page with proof panel, transfer, sell back. Runs against testnet and devnet. |
-| **Mon 10 Nov** | Mainnet readiness | Mainnet config, 1Click partner key with `appFees`. `dry: true` quotes for BTC→Solana USDC and SOL→Solana USDC. **(approval)** Deploy the contract to mainnet. Merchant checkout demo page if ahead of schedule. |
-| **Tue 11 Nov** | **Mainnet golden run (approval, ~$130–180 outlay)** | Pay for a $50 pack from BTC (or SOL) through the checkout. The card arrives at the token's address. Transfer the token, and the second owner sells back. Record every hash. Fix what breaks. |
-| **Wed 12 Nov** | README and hardening | Machine-readable README: setup in one command, do X → see Y, honest labels ("mainnet-only", "confidential swap: no public swap hash", "testnet uses Tidepool and pre-stocked USDC-Dev"), disclosures, list of libraries. Edge cases: pack expiry at 2 hours, CC 429/503, MPC timeout, checkout refund. Hosted demo. Second mainnet run only if needed **(approval)**. |
-| **Thu 13 Nov** | Video and X draft | Record the < 2 min video (script below). Draft the X post (@NEARProtocol, #NEARHackathon). Freeze features at 18:00. |
-| **Fri 14 Nov** | Submit | By 12:00: final clean-clone run, tag `hackathon-submission`. **(approval)** You make the repo public and post on X. I print the API payload; you confirm; I submit **(approval)** well before 23:59. |
+| **Sun 8 Nov** | Contract hardening, checkout, relayer, `demo:testnet` ✅ | Pre-sign attack proven, then fixed (D-015). `packages/checkout`, `services/relayer` and the demo pass on real networks. |
+| **Mon 9 Nov** | Tier 1 evidence and app start | `verify:pull` run against recorded pulls, evidence file with transaction links, README first draft. Web app: pack shop and checkout against the relayer API. |
+| **Tue 10 Nov** | Web app | Privy sign-in, reveal, proof panel, transfer, sell back, withdraw, honest progress messages for slow signing. Needs your Privy app id. |
+| **Wed 11 Nov** | Mainnet prep | Mainnet treasury and nonce accounts, a paid RPC endpoint, partner key, dry-run CC mainnet `generatePack` through `assertSafePackTx` with no signing, the contract deploy **(your approval)**. |
+| **Thu 12 Nov** | **Mainnet run (your approval, ~$130–180 outlay)** | One real $50 pull paid from SOL, handover, sell back, withdraw, recorded hashes. A spare half-day for fixes. |
+| **Fri 13 Nov** | README and video | Final README for machine readers, demo video, X post draft. Features freeze at 18:00. |
+| **Sat 14 Nov** | Submit | Final clean-clone run. You make the repo public and post; I print the payload, you confirm, I submit, well before 23:59 UTC. |
 
 ### Decision points
 

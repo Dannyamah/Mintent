@@ -272,10 +272,19 @@ https://docs.collectorcrypt.com/vault/shipping-api and https://docs.jup.ag/user-
 
 ---
 
+## 3.8 Facts learned from real runs (8 Nov)
+
+- **NEAR RPC:** `rpc.*.near.org` is deprecated and returns 429. Free endpoints rate-limit per IP. Testnet endpoints that work: `testnet-rpc.intea.rs`, `near-testnet.drpc.org`, `api.zan.top/near-testnet`, `test.rpc.fastnear.com`. Mainnet: `free.rpc.fastnear.com`, `near.drpc.org`, `rpc.mainnet.fastnear.com`. [V 8 Nov]
+- **Tidepool's faucet is site-only since 8 Nov** (`POST /v0/faucet` returns 403 `site_only`), with one claim per address per 7 days. Status `destinationChainTxHashes` mixes NEAR hashes and Solana signatures. It creates the recipient's token account on payout. [V 8 Nov]
+- **CC `generatePack`:** a player holding 0.01 SOL or more becomes the fee payer; with less, CC's wallet pays. [V 8 Nov]
+- **Sell-back price comes from the quote, not the listed insured value:** a card listed at $89 was quoted at 85% of $63. The UI must show the quote's price. Reason not yet known. [V 8 Nov]
+- **1Click mainnet:** live and dry BTC quotes fail the official SDK's `verifyQuoteSignature` (0.1.26) while SOL and ETH pass. BTC settlement estimate is 802 s. The EVM `refundTo` must be a valid, checksummed address. Without a key, quotes show a 20 bps app fee entry. [V 8 Nov]
+- **Current demo contract:** `mintent-con-mw7mmwr5.testnet`; see `docs/EVIDENCE.md`. Hardened dev contract: `app3.mintent-dev-mw21w9ki.testnet`. `app.` is deleted and `app2.` is the unprotected contract kept as evidence of the attack.
+
 ## 3.7 Our testnet setup (updated 5 Nov)
 
 - Dev account (owner and relayer): `mintent-dev-mw21w9ki.testnet` (throwaway; key in `~/.near-credentials/testnet/`)
-- **Current contract: `app2.mintent-dev-mw21w9ki.testnet`** (MPC = `v1.signer-prod.testnet`). `app.` is retired (old storage layout).
+- Contract on 5 Nov: `app2.mintent-dev-mw21w9ki.testnet` (superseded, see 3.8).
 - Treasury Solana address (path `treasury`): `AS7zGp3xhVPkiJjPrPAPL4EBWcijLW5tQvZ4FEk1XkAv`. It holds devnet SOL (via Tidepool) and USDC-Dev.
 - Treasury durable-nonce account (seed `mintent-nonce-1`): `8faHKnvoQibuqYtd6BRSa6LYXtx69bHJ4FooWvxwz3H`
 - Token `0` card address (path `card/0`): `2nzGyNMYVzjZAAARMTx3aS4nHk3VwGkQzY8xCuga38e6`

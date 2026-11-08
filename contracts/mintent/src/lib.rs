@@ -10,7 +10,16 @@
 //!   loses the ability to sign the moment the transfer executes.
 //! - Only the **relayer** can mint sealed packs, record what a pack contained, and sign for the
 //!   Mintent treasury path (`treasury`), which pays Collector Crypt for packs.
-//! - The contract does not interpret Solana transactions; it authorises *who* may sign for *which* path.
+//! - A Solana signature outlives the NEAR state that authorised it, so ownership alone is not enough. Before
+//!   signing for a card the contract parses the Solana message and allows only known-safe instructions
+//!   (`solana.rs`), and it locks the token against NEP-171 transfer:
+//!   * every card signature locks the token for `SIGN_LOCK_MS`, longer than any blockhash can live, so a seller
+//!     cannot sell the NFT while still holding a usable signature;
+//!   * a signature that moves the card puts the token in `Exiting`, which blocks transfer until the relayer
+//!     records what happened (`record_release`, or `record_exit_failed` if it never landed);
+//!   * durable nonces are allowed only on Mintent's nonce accounts, whose authority is the treasury, so such a
+//!     transaction can't land without the relayer's signature.
+//! - The treasury path is not parsed: it is the relayer's money and a documented trust assumption.
 
 use near_contract_standards::non_fungible_token::core::{NonFungibleTokenCore, NonFungibleTokenResolver};
 use near_contract_standards::non_fungible_token::enumeration::NonFungibleTokenEnumeration;
@@ -20,7 +29,9 @@ use near_contract_standards::non_fungible_token::metadata::{
 use near_contract_standards::non_fungible_token::{NonFungibleToken, Token, TokenId};
 use near_sdk::json_types::U64;
 use near_sdk::serde_json::json;
-use near_sdk::store::LookupMap;
+use near_sdk::store::{IterableSet, LookupMap};
+pub mod solana;
+
 use near_sdk::{
     env, ext_contract, near, require, AccountId, BorshStorageKey, Gas, NearToken, PanicOnDefault, Promise,
     PromiseOrValue,
@@ -35,6 +46,9 @@ pub const MAX_PAYLOAD_BYTES: usize = 1232;
 /// Gas forwarded to the MPC `sign` call (contract requires >= 10 Tgas).
 pub const GAS_FOR_MPC_SIGN: Gas = Gas::from_tgas(15);
 pub const TREASURY_PATH: &str = "treasury";
+/// How long a token can't be transferred after a card signature. A Solana blockhash is valid for at most 150
+/// blocks (about 36 s on devnet and 60-90 s on mainnet), so 5 minutes leaves a wide margin.
+pub const SIGN_LOCK_MS: u64 = 5 * 60 * 1000;
 
 #[derive(BorshStorageKey)]
 #[near]
@@ -44,6 +58,9 @@ enum StorageKey {
     NftEnumeration,
     Cards,
     Orders,
+    SignLocks,
+    NonceAccounts,
+    PaymentMints,
 }
 
 #[near(serializers = [borsh, json])]
@@ -53,6 +70,8 @@ pub enum CardStatus {
     Sealed,
     /// Card delivered to the token's Solana address.
     Opened,
+    /// A signature that moves the card was issued. The token can't be transferred until the outcome is recorded.
+    Exiting,
     /// Card has left the token's address (bought back, withdrawn or redeemed).
     Released,
 }
@@ -79,6 +98,9 @@ pub struct CardView {
     pub owner_id: AccountId,
     pub solana_path: String,
     pub record: CardRecord,
+    /// Unix ms until which the token can't be transferred because of a recent card signature (0 if never).
+    pub locked_until_ms: U64,
+    pub transferable: bool,
 }
 
 /// Mirrors the MPC contract's `payload_v2` enum: `{"Eddsa": "<hex>"}`.
@@ -110,6 +132,12 @@ pub struct Contract {
     cards: LookupMap<TokenId, CardRecord>,
     /// Settled checkout order id (1Click deposit address) -> token minted for it. Prevents double mints.
     orders: LookupMap<String, TokenId>,
+    /// Token -> unix ms until which NEP-171 transfers are blocked.
+    sign_locks: LookupMap<TokenId, u64>,
+    /// Durable nonce accounts a card signature may use. Their authority must be the treasury.
+    nonce_accounts: IterableSet<String>,
+    /// SPL mints a card address may send (payment tokens such as USDC).
+    payment_mints: IterableSet<String>,
     next_token_id: u64,
 }
 
@@ -127,6 +155,9 @@ impl Contract {
             ),
             cards: LookupMap::new(StorageKey::Cards),
             orders: LookupMap::new(StorageKey::Orders),
+            sign_locks: LookupMap::new(StorageKey::SignLocks),
+            nonce_accounts: IterableSet::new(StorageKey::NonceAccounts),
+            payment_mints: IterableSet::new(StorageKey::PaymentMints),
             owner_id,
             relayer_id,
             mpc_contract_id,
@@ -141,6 +172,30 @@ impl Contract {
         self.relayer_id = relayer_id;
     }
 
+    /// Allow a durable nonce account for card signatures. Its authority must be the treasury address.
+    pub fn add_nonce_account(&mut self, address: String) {
+        self.assert_owner();
+        solana::decode_pubkey(&address).unwrap_or_else(|e| env::panic_str(e));
+        self.nonce_accounts.insert(address);
+    }
+
+    pub fn remove_nonce_account(&mut self, address: String) {
+        self.assert_owner();
+        self.nonce_accounts.remove(&address);
+    }
+
+    /// Allow an SPL mint (a payment token, never a card) to be sent from card addresses.
+    pub fn add_payment_mint(&mut self, address: String) {
+        self.assert_owner();
+        solana::decode_pubkey(&address).unwrap_or_else(|e| env::panic_str(e));
+        self.payment_mints.insert(address);
+    }
+
+    pub fn remove_payment_mint(&mut self, address: String) {
+        self.assert_owner();
+        self.payment_mints.remove(&address);
+    }
+
     pub fn get_config(&self) -> near_sdk::serde_json::Value {
         json!({
             "owner_id": self.owner_id,
@@ -148,6 +203,9 @@ impl Contract {
             "mpc_contract_id": self.mpc_contract_id,
             "next_token_id": self.next_token_id,
             "treasury_path": TREASURY_PATH,
+            "sign_lock_ms": SIGN_LOCK_MS,
+            "nonce_accounts": self.nonce_accounts.iter().collect::<Vec<_>>(),
+            "payment_mints": self.payment_mints.iter().collect::<Vec<_>>(),
         })
     }
 
@@ -232,17 +290,32 @@ impl Contract {
     pub fn record_release(&mut self, token_id: TokenId, reason: String) {
         self.assert_relayer();
         let mut record = self.cards.get(&token_id).cloned().unwrap_or_else(|| env::panic_str("unknown token"));
-        require!(record.status == CardStatus::Opened, "card is not held");
+        require!(
+            record.status == CardStatus::Opened || record.status == CardStatus::Exiting,
+            "card is not held"
+        );
         record.status = CardStatus::Released;
         record.release_reason = Some(reason.clone());
         self.cards.insert(token_id.clone(), record);
         emit("card_released", json!({ "token_id": token_id, "reason": reason }));
     }
 
+    /// A card-moving signature was issued but the transaction can no longer land (it expired or failed).
+    /// Clears `Exiting` so the token can be transferred again once its sign lock ends.
+    pub fn record_exit_failed(&mut self, token_id: TokenId) {
+        self.assert_relayer();
+        let mut record = self.cards.get(&token_id).cloned().unwrap_or_else(|| env::panic_str("unknown token"));
+        require!(record.status == CardStatus::Exiting, "card is not exiting");
+        record.status = CardStatus::Opened;
+        self.cards.insert(token_id.clone(), record);
+        emit("exit_failed", json!({ "token_id": token_id }));
+    }
+
     // ---------- signing ----------
 
-    /// The current token owner asks the MPC network to sign `payload_hex` (a serialized Solana
-    /// message, or a raw sign-in message) with the key at `card/<token_id>`.
+    /// The current token owner asks the MPC network to sign `payload_hex`, a serialized Solana message, with
+    /// the key at `card/<token_id>`. The message must pass the signing policy (`solana.rs`). Every signature
+    /// locks the token for `SIGN_LOCK_MS`, and a signature that moves the card puts it in `Exiting`.
     /// Requires an attached deposit of at least 1 yoctoNEAR so function-call access keys cannot use it.
     /// Attach >= 50 Tgas. Returns the MPC response (Ed25519 signature).
     #[payable]
@@ -250,8 +323,20 @@ impl Contract {
         require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
         let owner = self.tokens.owner_by_id.get(&token_id).unwrap_or_else(|| env::panic_str("unknown token"));
         require!(env::predecessor_account_id() == owner, "only the token owner can sign for this card");
+
+        let mut record = self.cards.get(&token_id).cloned().unwrap_or_else(|| env::panic_str("unknown token"));
+        require!(record.status != CardStatus::Sealed, "pack is not opened yet");
+        let classified = self.classify(&payload_hex);
+        if classified.moves_card {
+            require!(record.status != CardStatus::Released, "card has already left this address");
+            record.status = CardStatus::Exiting;
+            self.cards.insert(token_id.clone(), record);
+        }
+        let locked_until = env::block_timestamp_ms() + SIGN_LOCK_MS;
+        self.sign_locks.insert(token_id.clone(), locked_until);
+
         let path = card_path_for(&token_id);
-        emit("sign_requested", json!({ "token_id": token_id, "path": path, "by": owner, "payload_bytes": payload_hex.len() / 2 }));
+        emit("sign_requested", json!({ "token_id": token_id, "path": path, "by": owner, "payload_bytes": payload_hex.len() / 2, "moves_card": classified.moves_card, "uses_durable_nonce": classified.uses_durable_nonce, "locked_until_ms": U64(locked_until) }));
         self.mpc_sign(path, payload_hex)
     }
 
@@ -270,6 +355,12 @@ impl Contract {
         self.orders.get(&order_id).cloned()
     }
 
+    /// Dry-run the signing policy on a message. Panics with the reason if `sign_for_card` would refuse it.
+    pub fn check_card_message(&self, payload_hex: String) -> near_sdk::serde_json::Value {
+        let c = self.classify(&payload_hex);
+        json!({ "moves_card": c.moves_card, "uses_durable_nonce": c.uses_durable_nonce })
+    }
+
     pub fn card_path(&self, token_id: TokenId) -> String {
         card_path_for(&token_id)
     }
@@ -277,10 +368,33 @@ impl Contract {
     pub fn get_card(&self, token_id: TokenId) -> Option<CardView> {
         let record = self.cards.get(&token_id)?.clone();
         let owner_id = self.tokens.owner_by_id.get(&token_id)?;
-        Some(CardView { solana_path: card_path_for(&token_id), token_id, owner_id, record })
+        let locked_until_ms = self.sign_locks.get(&token_id).copied().unwrap_or(0);
+        let transferable = record.status != CardStatus::Exiting && env::block_timestamp_ms() >= locked_until_ms;
+        Some(CardView { solana_path: card_path_for(&token_id), token_id, owner_id, record, locked_until_ms: U64(locked_until_ms), transferable })
     }
 
     // ---------- internals ----------
+
+    fn classify(&self, payload_hex: &str) -> solana::Classified {
+        let bytes = hex::decode(payload_hex).unwrap_or_else(|_| env::panic_str("payload_hex is not valid hex"));
+        require!(
+            (MIN_PAYLOAD_BYTES..=MAX_PAYLOAD_BYTES).contains(&bytes.len()),
+            "payload must be 32..=1232 bytes"
+        );
+        let msg = solana::parse_message(&bytes).unwrap_or_else(|e| env::panic_str(e));
+        let nonces: Vec<solana::Pubkey> = self.nonce_accounts.iter().filter_map(|a| solana::decode_pubkey(a).ok()).collect();
+        let mints: Vec<solana::Pubkey> = self.payment_mints.iter().filter_map(|a| solana::decode_pubkey(a).ok()).collect();
+        solana::classify_card_message(&msg, &nonces, &mints).unwrap_or_else(|e| env::panic_str(e))
+    }
+
+    /// NEP-171 transfers are blocked while a signature might still land.
+    fn assert_transferable(&self, token_id: &TokenId) {
+        if let Some(record) = self.cards.get(token_id) {
+            require!(record.status != CardStatus::Exiting, "token is locked: the card is leaving this address");
+        }
+        let until = self.sign_locks.get(token_id).copied().unwrap_or(0);
+        require!(env::block_timestamp_ms() >= until, "token is locked: a recent card signature may still be usable");
+    }
 
     fn mpc_sign(&self, path: String, payload_hex: String) -> Promise {
         let bytes = hex::decode(&payload_hex).unwrap_or_else(|_| env::panic_str("payload_hex is not valid hex"));
@@ -341,6 +455,7 @@ fn emit(event: &str, data: near_sdk::serde_json::Value) {
 impl NonFungibleTokenCore for Contract {
     #[payable]
     fn nft_transfer(&mut self, receiver_id: AccountId, token_id: TokenId, approval_id: Option<u64>, memo: Option<String>) {
+        self.assert_transferable(&token_id);
         self.tokens.nft_transfer(receiver_id, token_id, approval_id, memo)
     }
 
@@ -353,6 +468,7 @@ impl NonFungibleTokenCore for Contract {
         memo: Option<String>,
         msg: String,
     ) -> PromiseOrValue<bool> {
+        self.assert_transferable(&token_id);
         self.tokens.nft_transfer_call(receiver_id, token_id, approval_id, memo, msg)
     }
 

@@ -11,6 +11,58 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-021 · 8 Nov · Mainnet demo pays from SOL live; BTC is a recorded clip
+
+- **Why:** a mainnet dry quote estimates **802 s (about 13 minutes)** for BTC, against 17–42 s for SOL, NEAR USDC, Base, Arbitrum and ETH.
+- **Impact:** the video shows a real SOL (or Base USDC) payment end to end, plus a clip of a real BTC deposit if the budget allows. Don't promise "under a minute" from BTC.
+- **Status:** Provisional (your budget and chain call).
+
+### D-020 · 8 Nov · Judges verify in tiers, and the core tier needs no credentials or faucet
+
+- **Why:** an AI judge has no credentials of ours, and **Tidepool made its faucet site-only on 8 Nov**, after tightening it on each of the previous days. A judge's automated path can't depend on it.
+- **Impact:**
+  - **Tier 1 (no credentials, minutes):** `pnpm test`, `pnpm verify:pull` on our recorded real pulls (public data only), and the mainnet dry-quote check.
+  - **Tier 2 (test tokens):** `pnpm demo:testnet` creates its own accounts, deploys `contracts/res/mintent.wasm` and funds its own treasury. It needs a `DEMO_FUNDER` account holding test USDC from Tidepool's site.
+  - **Tier 3:** the video and the hosted app.
+- **Status:** Adopted.
+
+### D-019 · 8 Nov · Multiple NEAR RPC providers with backoff; never `rpc.*.near.org`
+
+- **Why:** `rpc.testnet.near.org` is deprecated and returned 429 during the demo. FastNEAR's free endpoint then rate-limited us per IP too.
+- **Impact:** `nearProvider()` fails over across several endpoints, and `NEAR_RPC_URLS` puts paid ones first. **For the mainnet run and judging week, use a paid or private RPC endpoint.**
+- **Status:** Adopted.
+
+### D-018 · 8 Nov · Settlement is proven on Solana, not taken from the API
+
+- **Why:** a "SUCCESS" string is an API's claim. Also, the official SDK's `verifyQuoteSignature` returns **false for 1Click's own BTC quotes** (live and dry; SOL and ETH verify), so signatures alone would have blocked the headline flow.
+- **Impact:**
+  - The relayer checks the quote's recipient, asset and amount, then reads the destination transaction and confirms the treasury's balance rose by at least the order amount.
+  - Each settlement transaction can pay for only one order.
+  - Signature checks stay strict everywhere except BTC, which is a documented false negative worth reporting to the Intents team.
+- **Status:** Adopted.
+
+### D-017 · 8 Nov · A 1% service fee inside the quote instead of `appFees`
+
+- **Why:** `appFees` gives up half and forces a 20 bps minimum to 1Click. A stablecoin route costs 1 bp without it, and an EXACT_OUTPUT quote for price + 1% pays for Solana fees and rent directly into the treasury.
+- **Impact:** the customer sees pack price + 1% before paying. This replaces the rundown's pack edge and buyback spread as the revenue line. Real margin on a $50 pack is about $0.50 minus roughly $0.30 of Solana costs, so this is a distribution business that needs a Collector Crypt rev share to be meaningful. The Invoiced API has one.
+- **Status:** Adopted.
+
+### D-016 · 8 Nov · Marketplace listing is not available through the token; withdraw first
+
+- **Why:** a listing installs a delegate that survives an NFT sale, so a seller could list cheaply to their own alt account, sell the NFT, then buy through the listing. S2 proved listing works, but it can't be made safe at the token level in the time we have.
+- **Impact:** supersedes the marketplace item in the plan and the S2 route. To list, the owner withdraws the card to their own Solana wallet, which releases the token. Also, D-013's standard `/api/buyback` fallback is dropped: its CC-built transaction isn't policy-checked and isn't needed.
+- **Status:** Adopted.
+
+### D-015 · 8 Nov · The contract parses and restricts what it signs, and locks tokens after signing
+
+- **Why:** we proved on a live deployment that "only the current owner can sign" is not enough: a seller signed a transfer, sold the NFT, then broadcast it, and the buyer got an empty NFT (devnet tx `287sh1C2…`). Delegates and durable nonces give the same result.
+- **Impact:**
+  - `sign_for_card` accepts only messages on a strict allowlist (`contracts/mintent/src/solana.rs`).
+  - Every card signature locks NFT transfer for 5 minutes, and a card-moving signature puts the token in `Exiting` until the outcome is recorded.
+  - Durable nonces are limited to Mintent's own accounts, which also need the treasury's signature.
+  - New contract: `docs/THREAT-MODEL.md` documents all of this.
+- **Status:** Adopted. Replaces the earlier idea that the contract "does not interpret Solana transactions".
+
 ### D-014 · 5 Nov · The relayer reconciles NEAR card records against Solana ownership
 
 - **Why:** the contract can't see Solana. In S1 a card left token 0's address without `record_release`, so NEAR said "Opened" while Solana said otherwise.
@@ -69,6 +121,7 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
   - `pnpm demo:testnet` uses Tidepool.
   - Rules: test tokens only, never send it our partner JWT, never rely on swap hashes.
   - Testnet rule: Tidepool's devnet USDC ≠ CC's devnet USDC-Dev, so the treasury is pre-stocked with USDC-Dev on testnet.
+  - **Update 8 Nov:** Tidepool's faucet is now site-only (D-020), so it's for development and Tier 2, not the judges' automated path. It has changed its limits daily, so expect further changes.
 - **Status:** Adopted.
 
 ### D-007 · 5 Nov · One checkout per pack; no user balances in the contract

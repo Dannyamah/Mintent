@@ -6,9 +6,20 @@
   "license": "MIT",
   "packageManager": "pnpm@12.8.1",
   "scripts": {
+    "demo:testnet": "pnpm --filter @mintent/scripts demo:testnet",
+    "verify:pull": "pnpm --filter @mintent/scripts verify:pull",
+    "test": "pnpm --filter @mintent/checkout test && pnpm --filter @mintent/relayer test && pnpm test:contracts",
     "test:contracts": "cd contracts && cargo test",
-    "build:contracts": "cd contracts/mintent && cargo near build non-reproducible-wasm",
-    "spike:sign": "pnpm --filter @mintent/scripts exec tsx src/spike-s1-sign.ts",
-    "spike:contract": "pnpm --filter @mintent/scripts exec tsx src/spike-s1-contract.ts"
+    "build:contracts": "cd contracts/mintent && cargo near build non-reproducible-wasm && cp ../target/near/mintent/mintent.wasm ../res/mintent.wasm",
+    "typecheck": "tsc -p .",
+    "relayer": "pnpm --filter @mintent/relayer start"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }

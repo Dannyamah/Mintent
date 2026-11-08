@@ -5,9 +5,14 @@
   "scripts": {
     "spike:sign": "tsx src/spike-s1-sign.ts",
     "spike:contract": "tsx src/spike-s1-contract.ts",
-    "deploy:testnet": "tsx src/deploy-testnet.ts"
+    "deploy:testnet": "tsx src/deploy-testnet.ts",
+    "demo:testnet": "tsx src/demo-testnet.ts",
+    "verify:pull": "tsx src/verify-pull.ts"
   },
   "dependencies": {
+    "@mintent/shared": "workspace:*",
+    "@mintent/checkout": "workspace:*",
+    "@mintent/relayer": "workspace:*",
     "@solana/web3.js": "^3.1.1",
     "bs58": "^6.0.0",
     "dotenv": "^18.0.9",

@@ -143,7 +143,6 @@ async function sellback() {
       authorizeAndPay,
     ],
     cardSigners: [{ address: card, owner: accountFor(A.owner), tokenId: A.tokenId }],
-    lookupTables: lut ? [lut] : undefined,
   });
   await dev.callFunction({ contractId, methodName: "record_release", args: { token_id: A.tokenId, reason: "bought_back" }, gas: 30_000_000_000_000n });
   const bal = await conn.getTokenAccountBalance(sellerToken);

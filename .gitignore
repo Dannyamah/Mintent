@@ -9,3 +9,6 @@ target/
 .DS_Store
 scripts/.spike-*.json
 scripts/.cc-market-idl.json
+scripts/.demo-*.json
+scripts/.spike-*.json
+*.sqlite*
