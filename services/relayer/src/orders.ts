@@ -21,6 +21,9 @@ export interface CreateOrderInput {
 }
 
 export class OrderPipeline {
+  /** One run per order at a time. Without this, two overlapping runs could each sign and pay for a pack. */
+  private inFlight = new Map<string, Promise<Order>>();
+
   constructor(private d: Deps) {}
 
   async createOrder(input: CreateOrderInput): Promise<{ order: Order; quote: CheckoutQuote }> {
@@ -54,7 +57,15 @@ export class OrderPipeline {
   }
 
   /** Run every step that can run now. Returns the order's latest state. */
-  async advance(id: string): Promise<Order> {
+  advance(id: string): Promise<Order> {
+    const running = this.inFlight.get(id);
+    if (running) return running;
+    const run = this.runSteps(id).finally(() => this.inFlight.delete(id));
+    this.inFlight.set(id, run);
+    return run;
+  }
+
+  private async runSteps(id: string): Promise<Order> {
     const { db, log } = this.d;
     let order = db.order(id);
     if (!order) throw new Error(`unknown order ${id}`);
@@ -185,6 +196,8 @@ export class OrderPipeline {
     const { owner } = await chain.assetOwner(opened.nftAddress);
     if (owner !== o.card_address) throw new Error(`card ${opened.nftAddress} is owned by ${owner}, not the token's address ${o.card_address}`);
     const meta = await cc.card(opened.nftAddress);
+    // The reveal is the product's best moment: have the image ready before the customer is sent to it.
+    await this.d.warmImages?.([cc.imageUrl(opened.nftAddress, 800)]);
     const insuredCents = Math.round(Number(meta.insuredValue ?? 0) * 100);
     const view = await contract.getCard(o.token_id!);
     if (view?.record.status === "Sealed") {

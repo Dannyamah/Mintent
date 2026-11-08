@@ -2,7 +2,7 @@
 // Identity: nothing here can move a card or a coin without the owner's own on-chain sign_for_card call,
 // so `actor` needs no login: the contract is the authority, and the relayer double-checks it.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { accountFromKey, loadAccount, loadConfig } from "@mintent/shared";
+import { accountFromKey, CONFIGS, loadAccount, loadConfig, NETWORKS, type RecentPull } from "@mintent/shared";
 import { CardOps } from "./ops.js";
 import { OrderPipeline } from "./orders.js";
 import { reconcile } from "./reconcile.js";
@@ -12,6 +12,11 @@ import { createRuntime } from "./runtime.js";
 export function neutralPackName(price: number): string {
   return `$${price} Graded Card Pack`;
 }
+
+// 1Click temporarily blocks small swaps from these chains (docs changelog, Sep 2026), so they can't pay for a pack.
+const SMALL_SWAPS_BLOCKED = new Set(["bsc", "pol", "ton", "op", "avax", "stellar", "monad", "xlayer", "adi", "tron"]);
+const TESTNET_USDC = "usdc.tidepool-sandbox.testnet";
+const TESTNET_VERIFIER = "verifier.tidepool-sandbox.testnet";
 
 async function body(req: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
@@ -38,20 +43,41 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
   const pipeline = new OrderPipeline(d);
   const ops = new CardOps(d);
   const allowedOrigin = process.env.WEB_ORIGIN ?? "*";
+  // Testnet convenience only: lets the app pay a quote with test USDC. Never available on mainnet.
+  const funder = config.network === "testnet" && process.env.DEMO_FUNDER ? loadAccount("testnet", process.env.DEMO_FUNDER) : null;
+  let gallery: { at: number; pulls: RecentPull[] } = { at: 0, pulls: [] };
 
   const routes: [string, RegExp, (m: RegExpMatchArray, b: any) => Promise<unknown>][] = [
-    ["GET", /^\/health$/, async () => ({ ok: true, network: config.network, contract: contractId, treasury: d.chain.treasury.toBase58(), checkout: d.checkout.name })],
+    ["GET", /^\/health$/, async () => ({ ok: true, network: config.network, contract: contractId, treasury: d.chain.treasury.toBase58(), checkout: d.checkout.name, mpcContract: config.mpcContract, serviceFeeBps: config.serviceFeeBps, defaultPack: CONFIGS[config.network].defaultPack, nearRpcs: [NETWORKS[config.network].rpc, ...NETWORKS[config.network].rpcFallbacks], testPay: Boolean(funder) })],
+    ["GET", /^\/gallery$/, async () => {
+      return gallery.pulls;
+    }],
+    ["GET", /^\/card-image\/([1-9A-HJ-NP-Za-km-z]{32,44})$/, async (m) => ({ image: d.cc.imageUrl(m[1], 800) })],
+    ["GET", /^\/owners\/([^/]+)\/cards$/, async (m) => d.contract.tokensOf(decodeURIComponent(m[1]))],
     ["GET", /^\/packs$/, async () => {
       const list = await d.cc.machines();
       return list.map((m) => ({ code: m.code, name: neutralPackName(m.price), price: m.price, odds: m.odds, expectedValue: m.ev, buybackPct: m.instantBuyback }));
     }],
-    ["GET", /^\/pay-assets$/, async () => (await d.checkout.tokens()).map((t) => ({ assetId: t.assetId, symbol: t.symbol, chain: t.blockchain, decimals: t.decimals, price: t.price }))],
+    ["GET", /^\/pay-assets$/, async () => (await d.checkout.tokens()).filter((t) => !SMALL_SWAPS_BLOCKED.has(t.blockchain) && (config.network !== "testnet" || t.assetId === `nep141:${TESTNET_USDC}`)).map((t) => ({ assetId: t.assetId, symbol: t.symbol, chain: t.blockchain, decimals: t.decimals, price: t.price }))],
     ["POST", /^\/orders$/, async (_m, b) => {
       need(b, "buyer", "packType", "originAsset", "refundTo");
       const { order, quote } = await pipeline.createOrder({ buyer: b.buyer, packType: b.packType, originAsset: b.originAsset, refundTo: b.refundTo, depositType: b.depositType, refundType: b.refundType });
-      return { orderId: order.id, depositAddress: quote.depositAddress, depositMemo: quote.depositMemo, amountIn: quote.amountIn, amountInFormatted: quote.amountInFormatted, deadline: quote.deadline, priceUnits: order.price_units, amountOut: order.amount_out };
+      return { orderId: order.id, depositAddress: quote.depositAddress, depositMemo: quote.depositMemo, amountIn: quote.amountIn, amountInFormatted: quote.amountInFormatted, deadline: quote.deadline, priceUnits: order.price_units, amountOut: order.amount_out, timeEstimateSeconds: quote.timeEstimateSeconds };
     }],
-    ["GET", /^\/orders\/([^/]+)$/, async (m) => pipeline.advance(decodeURIComponent(m[1]))],
+    // Reads only. The background tick moves orders forward; a page poll must never start a purchase.
+    ["GET", /^\/orders\/([^/]+)$/, async (m) => {
+      const order = d.db.order(decodeURIComponent(m[1]));
+      if (!order) throw Object.assign(new Error("unknown order"), { status: 404 });
+      return { ...order, verifyUrl: order.memo ? d.cc.verifyUrl(order.memo) : null };
+    }],
+    ["POST", /^\/orders\/([^/]+)\/test-pay$/, async (m) => {
+      if (!funder) throw Object.assign(new Error("test payments are not available"), { status: 403 });
+      const order = d.db.order(decodeURIComponent(m[1]));
+      if (!order || order.state !== "awaiting_payment" || order.origin_asset !== `nep141:${TESTNET_USDC}`) throw Object.assign(new Error("this order can't take a test payment"), { status: 400 });
+      const tx = await funder.callFunctionRaw({ contractId: TESTNET_USDC, methodName: "ft_transfer_call", args: { receiver_id: TESTNET_VERIFIER, amount: order.amount_in, msg: order.id }, deposit: 1n, gas: 100_000_000_000_000n });
+      await d.checkout.submitDeposit(tx.transaction.hash, order.id).catch(() => undefined);
+      return { ok: true };
+    }],
     ["POST", /^\/orders\/([^/]+)\/deposit$/, async (m, b) => {
       need(b, "txHash");
       await d.checkout.submitDeposit(b.txHash, decodeURIComponent(m[1]), b.memo);
@@ -102,13 +128,22 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
       res.writeHead(e?.status ?? 500).end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
     }
   });
+  // The wall must never make a visitor wait for resizing, so prepare its images before publishing them.
+  const refreshGallery = async () => {
+    const pulls = await d.cc.recentPulls(60);
+    if (!pulls.length) return;
+    await d.warmImages?.(pulls.map((p) => p.thumb));
+    gallery = { at: Date.now(), pulls };
+  };
+  await refreshGallery().catch((e) => d.log(`gallery: ${e}`));
   await new Promise<void>((r) => server.listen(port, r));
   d.log(`listening on :${port} (${config.network}, contract ${contractId}, checkout ${d.checkout.name})`);
 
   // Background: move open orders forward and reconcile NEAR against Solana.
   const tick = setInterval(() => void pipeline.advanceAll().catch((e) => d.log(`advance: ${e}`)), 5_000);
+  const wall = setInterval(() => void refreshGallery().catch((e) => d.log(`gallery: ${e}`)), 5 * 60_000);
   const rec = setInterval(() => void reconcile(d).then((f) => f.length && d.log(`reconcile: ${JSON.stringify(f)}`), (e) => d.log(`reconcile: ${e}`)), 60_000);
-  return { server, deps: d, stop: () => { clearInterval(tick); clearInterval(rec); server.close(); } };
+  return { server, deps: d, stop: () => { clearInterval(tick); clearInterval(rec); clearInterval(wall); server.close(); } };
 }
 
 if (process.argv[1]?.endsWith("server.ts")) await startServer();

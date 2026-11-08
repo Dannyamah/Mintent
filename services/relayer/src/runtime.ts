@@ -6,22 +6,48 @@ import { createBackend } from "@mintent/checkout";
 import { Db } from "./db.js";
 import { SolanaChain, type Deps, type Sponsor } from "./deps.js";
 
-const SPONSOR_MIN_YOCTO = 30_000_000_000_000_000_000_000n; // 0.03 NEAR
-const SPONSOR_TOPUP_YOCTO = 50_000_000_000_000_000_000_000n; // 0.05 NEAR, enough for several card signatures
+// NEAR checks an account's balance against the gas it attaches at about 10x the current gas price, and refunds what's
+// unused. Measured on testnet at price 1e8: 30 Tgas needed 0.0309 NEAR, and 100 Tgas needed 0.1009 NEAR.
+// So the float isn't spent: only the burn is, a fraction of this per signature.
+const CARD_SIGN_GAS = 50_000_000_000_000n; // 50 Tgas, what the app attaches to sign_for_card
+const PESSIMISTIC_MULTIPLIER = 10n;
+export function sponsorAmounts(gasPriceYocto: bigint): { min: bigint; topUp: bigint } {
+  const needed = CARD_SIGN_GAS * gasPriceYocto * PESSIMISTIC_MULTIPLIER;
+  return { min: (needed * 12n) / 10n, topUp: needed * 2n };
+}
 
 export function nearSponsor(relayer: Account): Sponsor {
   return {
     async ensureFunded(account) {
       let balance = 0n;
       try {
-        const q = (await relayer.provider.viewAccount({ accountId: account, blockQuery: { finality: "final" } } as never)) as unknown as { amount: string | bigint };
+        const q = (await relayer.provider.viewAccount({ accountId: account, finality: "final" } as never)) as unknown as { amount: string | bigint };
         balance = BigInt(q.amount);
       } catch {
         balance = 0n; // a new implicit account: the transfer below creates it
       }
-      if (balance < SPONSOR_MIN_YOCTO) await relayer.transfer({ receiverId: account, amount: SPONSOR_TOPUP_YOCTO } as never);
+      const price = (await relayer.provider.viewGasPrice()) as unknown as { gas_price?: string; gasPrice?: bigint };
+      const { min, topUp } = sponsorAmounts(BigInt(price.gas_price ?? price.gasPrice ?? 1_000_000_000n));
+      if (balance >= min) return;
+      await relayer.transfer({ receiverId: account, amount: topUp } as never);
+      // Return only once nodes can see the account, or the customer's first transaction fails right after this.
+      for (let i = 0; i < 12; i++) {
+        const seen = await relayer.provider.viewAccount({ accountId: account, finality: "final" } as never).then(() => true, () => false);
+        if (seen) return;
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     },
   };
+}
+
+/** Fetch images a few at a time, so the image service has them cached before anyone asks. */
+export async function warmImages(urls: string[]): Promise<void> {
+  const queue = [...urls];
+  await Promise.all(
+    Array.from({ length: 6 }, async () => {
+      for (let url = queue.shift(); url; url = queue.shift()) await fetch(url, { signal: AbortSignal.timeout(15_000) }).then((r) => r.arrayBuffer()).catch(() => undefined);
+    }),
+  );
 }
 
 export async function createRuntime(opts: { contractId: string; relayer: Account; dbPath?: string; config?: MintentConfig; oneClickJwt?: string; log?: Deps["log"] }): Promise<Deps & { contract: MintentContract; chain: SolanaChain }> {
@@ -35,6 +61,7 @@ export async function createRuntime(opts: { contractId: string; relayer: Account
     contract: new MintentContract(opts.contractId, opts.relayer),
     chain: await SolanaChain.create(conn, config.network, opts.contractId),
     sponsor: nearSponsor(opts.relayer),
+    warmImages,
     log: opts.log ?? ((m) => console.log(`[relayer] ${m}`)),
   };
 }

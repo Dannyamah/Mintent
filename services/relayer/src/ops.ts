@@ -29,8 +29,10 @@ export class CardOps {
   }
 
   private async create(kind: OpKind, tokenId: string, actor: string, instructions: TransactionInstruction[], detail: Record<string, unknown>, expectMovesCard: boolean): Promise<Op> {
-    const { chain, contract, db } = this.d;
+    const { chain, contract, db, sponsor, log } = this.d;
     const nonceIndex = this.reserveNonce();
+    // Whoever owns a token can always act on it, even someone given the NFT who has never held NEAR.
+    await sponsor.ensureFunded(actor).catch((e) => log(`sponsor failed for ${actor}: ${e}`));
     const tx = await chain.buildNonceTx(nonceIndex, instructions);
     const hex = Buffer.from(tx.message.serialize()).toString("hex");
     // Dry-run the contract's policy now, so the owner is never asked to sign something it will refuse.

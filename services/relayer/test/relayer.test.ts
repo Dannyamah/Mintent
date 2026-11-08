@@ -4,8 +4,8 @@ import { beforeEach, test } from "node:test";
 import { PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import { MockBackend } from "@mintent/checkout";
-import { COMPUTE_BUDGET, MEMO_PROGRAM, MPL_CORE, TOKEN_PROGRAM, transferCheckedIx, type CardView } from "@mintent/shared";
-import { CardOps, Db, isSolanaSignature, OrderPipeline, reconcile, type Chain, type ContractApi, type Deps } from "../src/index.ts";
+import { COMPUTE_BUDGET, MEMO_PROGRAM, MPL_CORE, realRpcError, TOKEN_PROGRAM, transferCheckedIx, withRealErrors, type CardView } from "@mintent/shared";
+import { CardOps, Db, isSolanaSignature, OrderPipeline, reconcile, sponsorAmounts, type Chain, type ContractApi, type Deps } from "../src/index.ts";
 
 function keypair() {
   const { privateKey } = generateKeyPairSync("ed25519");
@@ -81,6 +81,7 @@ function world(): World {
   const contract: ContractApi = {
     getCard: async () => w.card,
     getOrderToken: async (id) => w.minted.get(id) ?? null,
+    tokensOf: async () => ["0"],
     checkCardMessage: async () => ({ moves_card: true, uses_durable_nonce: true }),
     mintPack: async (id) => {
       w.mints++;
@@ -133,6 +134,7 @@ function world(): World {
       buybackQuote: async () => { throw new Error("not used"); },
       card: async () => ({ insuredValue: "21.69", frontImage: "img" }),
       verifyUrl: (m: string) => m,
+      imageUrl: (m: string) => `img/${m}`,
     } as never,
     contract,
     chain,
@@ -201,6 +203,14 @@ test("crash after broadcast: resuming never buys a second pack", async () => {
   assert.equal(o.state, "complete");
   assert.equal(w.generatePacks, 1, "must not generate a second pack");
   assert.equal(w.sent.length, 1, "must not broadcast twice");
+});
+
+test("overlapping runs of one order never buy two packs", async () => {
+  const { p, id } = await paidOrder(w);
+  for (let i = 0; i < 8 && w.deps.db.order(id)!.state !== "complete"; i++) await Promise.all([p.advance(id), p.advance(id), p.advance(id)]);
+  assert.equal(w.deps.db.order(id)!.state, "complete");
+  assert.equal(w.generatePacks, 1);
+  assert.equal(w.sent.length, 1);
 });
 
 test("expired purchase is rebuilt, exactly one more time", async () => {
@@ -384,6 +394,39 @@ test("withdraw: verify the owner's signature, co-sign, broadcast, record release
   assert.equal(w.treasurySigns, 1);
   assert.equal(w.sent.length, 1);
   assert.deepEqual(w.releases, ["withdrawn"]);
+});
+
+test("someone given the NFT with no NEAR is sponsored when they act on it", async () => {
+  openedCard();
+  w.card.owner_id = "ben";
+  await new CardOps(w.deps).prepareWithdrawCard("0", "ben", GACHA.toBase58());
+  assert.deepEqual(w.sponsored, ["ben"]);
+});
+
+test("sponsorship covers the prepaid gas of a card signature at the live price", () => {
+  const { min, topUp } = sponsorAmounts(100_000_000n); // testnet's price
+  // Real rejections: 30 Tgas needed 0.0309 NEAR, so 50 Tgas needs about 0.051.
+  const measuredFor50Tgas = 51_000_000_000_000_000_000_000n;
+  assert.ok(min > measuredFor50Tgas);
+  assert.ok(topUp > min);
+  const nearTransfer = 30_919_628_919_299_500_000_001n; // the 30 Tgas NFT transfer that was rejected at 0.015 NEAR
+  assert.ok(topUp > nearTransfer);
+});
+
+test("failover surfaces the real error, so stale-nonce recovery and messages work", async () => {
+  class InvalidNonceError extends Error {}
+  const nonce = new InvalidNonceError("Invalid nonce (ak: 69, tx: 69)");
+  const busy = new Error('{"code": -429, "message": "Rate limits exceeded"}');
+  const wrapped = Object.assign(new Error("Exceeded 4 providers to execute request"), { errors: [busy, nonce, nonce] });
+  assert.equal(realRpcError(wrapped), nonce, "skips the busy provider");
+  assert.equal(realRpcError(Object.assign(new Error("x"), { errors: [busy] })), busy, "falls back to the first error");
+  const plain = new Error("plain");
+  assert.equal(realRpcError(plain), plain);
+  const p = withRealErrors({ value: 7, send: async () => { throw wrapped; }, ok: async () => "fine", sync: () => "sync" });
+  await assert.rejects(p.send(), (e) => e === nonce);
+  assert.equal(await p.ok(), "fine");
+  assert.equal(p.sync(), "sync");
+  assert.equal(p.value, 7);
 });
 
 test("a forged card signature gets no co-signature", async () => {

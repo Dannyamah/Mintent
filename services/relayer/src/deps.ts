@@ -23,6 +23,7 @@ export interface Chain {
 export interface ContractApi {
   getCard(tokenId: string): Promise<CardView | null>;
   getOrderToken(orderId: string): Promise<string | null>;
+  tokensOf(accountId: string): Promise<string[]>;
   checkCardMessage(hex: string): Promise<{ moves_card: boolean; uses_durable_nonce: boolean }>;
   mintPack(orderId: string, receiver: string, packType: string): Promise<string>;
   recordOpen(a: { tokenId: string; memo: string; cardMint: string; cardName: string; rarity: string; roll: number; insuredValueUsdCents: number; media: string | null }): Promise<void>;
@@ -31,7 +32,7 @@ export interface ContractApi {
   signForTreasury(message: Uint8Array): Promise<Uint8Array>;
 }
 
-export type CcApi = Pick<CcClient, "machines" | "machine" | "generatePack" | "openPack" | "buybackQuote" | "card" | "verifyUrl">;
+export type CcApi = Pick<CcClient, "machines" | "machine" | "recentPulls" | "imageUrl" | "generatePack" | "openPack" | "buybackQuote" | "card" | "verifyUrl">;
 
 export interface Sponsor {
   /** Make sure the customer can pay NEAR gas for their own card signatures. */
@@ -46,6 +47,8 @@ export interface Deps {
   contract: ContractApi;
   chain: Chain;
   sponsor: Sponsor;
+  /** Ask the image service to prepare a resized copy now, so the customer doesn't wait for it. Never throws. */
+  warmImages?: (urls: string[]) => Promise<void>;
   log: (msg: string, extra?: unknown) => void;
 }
 
