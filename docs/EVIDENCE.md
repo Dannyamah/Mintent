@@ -8,7 +8,7 @@ Everything here happened on public test networks with no real money: NEAR testne
 pnpm install
 pnpm test                                                          # contract, checkout and relayer tests
 pnpm verify:pull mintent-con-mw7mmwr5.testnet 0                    # token sold back by its new owner
-pnpm verify:pull mintent-con-mw7mmwr5.testnet 1                    # token still holding its card
+pnpm verify:pull mintent-con-mw7mmwr5.testnet 1                    # token whose owner withdrew the card to their own wallet
 ```
 
 `verify:pull` reads only public data: NEAR RPC, Solana RPC and Collector Crypt's verifier. It trusts nothing from our relayer.
@@ -28,7 +28,13 @@ Contract: `mintent-con-mw7mmwr5.testnet`, using the real testnet MPC network (`v
 | **Lingering rights refused** | Core delegate plugin, SPL Approve, a seller-owned durable nonce and a marketplace listing all refused by the live contract's policy | `check_card_message` on the contract |
 | Handover | Token 0 moved from Alice to Bob on NEAR. The card didn't move on Solana. Alice's next signing request was rejected | `get_card` on the contract |
 | Sell-back | Bob sold back through a Collector Crypt signed quote. The card returned to Collector Crypt and 53.55 USDC-Dev landed in the **NFT's own address** | [Tx `2d7rqzuc…`](https://explorer.solana.com/tx/2d7rqzuc8sdA9dhZEntJJsTeBVJpBj5tZY11Y6rnk7GMCLxZiHijvNFKn1ZrwvJZ2bJd4GPbkxXwqg6SYegy4WJA?cluster=devnet) |
-| Withdraw | Bob moved the proceeds to his own Chain Signatures Solana address `58yehWNYRXnnwqadNaZjpbrsrEzKuQq54WyKLUP8SVEc` | [Tx `BJaKuBMa…`](https://explorer.solana.com/tx/BJaKuBMaiJQW67WwNXU5WzpnLJu1GcdvLUb66qrzLsubYnamVLuPeB9PWCo27R7o2ng6gpXbnzyEq57VE2iao5G?cluster=devnet) |
+| Withdraw proceeds | Bob moved the proceeds to his own Chain Signatures Solana address `58yehWNYRXnnwqadNaZjpbrsrEzKuQq54WyKLUP8SVEc` | [Tx `BJaKuBMa…`](https://explorer.solana.com/tx/BJaKuBMaiJQW67WwNXU5WzpnLJu1GcdvLUb66qrzLsubYnamVLuPeB9PWCo27R7o2ng6gpXbnzyEq57VE2iao5G?cluster=devnet) |
+
+Then, in a follow-up run on the same contract:
+
+| Step | What happened | Check it |
+| --- | --- | --- |
+| Withdraw card | Alice moved token 1's card to her own Solana address `5Di94YZHTJXofneJtFV4eaTA1oAukfQ79AqBbfcCQdZz`, and NEAR recorded the release. This is how an owner redeems the physical card on Collector Crypt's site, or lists it on a marketplace | [Tx `4dkX3PWn…`](https://explorer.solana.com/tx/4dkX3PWnm8ApuAPvtU5WduBewzQqpEiQ1v1vAsE6jgxvfkN34Xz5sAdPrHFMRMj3Zfa8tzGiuqvdZkPbzcwPxmNR?cluster=devnet) |
 
 ## The attack, before the fix
 
@@ -54,4 +60,4 @@ On the unprotected contract, `app2.mintent-dev-mw21w9ki.testnet`, the seller sig
 - **Payment on testnet is not spent on the pack.** Tidepool's test USDC isn't the token Collector Crypt's devnet charges, so the treasury pays from pre-stocked USDC-Dev. On mainnet, both are real USDC.
 - **Paying from other chains** has been quoted, not executed. The test payment came from NEAR USDC.
 - **The relayer's HTTP API** has had its read routes and refusals exercised. The full flow above ran through the same code as a library, not over HTTP. The web app doesn't exist yet.
-- **Redemption of a physical card** is untested. It needs a `partnerSlug` from Collector Crypt.
+- **Redemption of a physical card** is untested. The path is to withdraw the card to your own Solana wallet, then redeem on Collector Crypt's site as any holder can.

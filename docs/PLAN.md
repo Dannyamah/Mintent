@@ -2,7 +2,7 @@
 
 Last updated: **8 Nov 2026**. All dates and times are UTC. Anything marked **(approval)** needs your explicit OK first.
 
-**Design:** Mintent is a NEAR front end to Collector Crypt (CC) packs (`RESEARCH-FINDINGS.md` section 5.2).
+**Design:** Mintent is a NEAR front end to Collector Crypt (CC) packs (`RESEARCH-FINDINGS.md` section 5.2), built only on CC's public, keyless APIs. No partnership or CC-issued key is needed; any partnership comes after the full build (D-022).
 - You pay for each pack through a NEAR Intents checkout, from any chain.
 - Each pull becomes a NEP-171 token on NEAR whose Chain Signatures-derived Solana address holds the real card.
 - Transferring the token transfers control of the card.
@@ -24,7 +24,7 @@ Last updated: **8 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 | `pnpm demo:testnet` | **Passes from nothing: 23/23 checks in 6.3 min on real networks** (`EVIDENCE.md`). |
 | Web app | **Not started.** |
 | Mainnet | **Nothing run yet.** Dry quotes only. |
-| Blocker 2 (redemption) | **Open.** Needs a CC `partnerSlug`. |
+| Blocker 2 (redemption) | **Decided (D-022):** withdraw the card to the owner's own Solana wallet, then redeem on Collector Crypt's site. No partnership needed. |
 | Blocker 4 (pricing) | **Verified.** |
 
 ## Scope
@@ -55,18 +55,17 @@ Last updated: **8 Nov 2026**. All dates and times are UTC. Anything marked **(ap
    6. `record_open`.
    - Idempotent per `order_id`, with a retry when the blockhash expires.
 4. **One exit that proves ownership moves with the token:** transfer the NEP-171 token; the **new** owner sells the card back (CC buyback or a `cc_buyback` quote); the old owner's signing attempt fails.
-5. **Web app:** Privy email/passkey sign-in, pack shop, checkout (pay from any chain), the opening reveal, a card page with a proof panel, transfer and sell back.
-6. **AI-judge path:**
+5. **Withdraw to my own Solana wallet:** the owner moves the card out, which releases the token. This is how a card is redeemed for the physical slab (on Collector Crypt's site) or listed on a marketplace.
+6. **Web app:** Privy email/passkey sign-in, pack shop, checkout (pay from any chain), the opening reveal, a card page with a proof panel, transfer and sell back.
+7. **AI-judge path:**
    - `pnpm demo:testnet` runs NEAR testnet, a Tidepool checkout, Solana devnet and CC devnet end to end, headless. It falls back to fixtures if Tidepool `/v0/health` or CC devnet is down.
    - `pnpm verify:pull <token_id>` re-checks every claim.
    - The README uses "do X → see Y" steps.
-7. **One real mainnet run (approval),** recorded with hashes in the README.
+8. **One real mainnet run (approval),** recorded with hashes in the README.
 
 ### Nice-to-have (in this order, only after the must-haves)
 
-1. "Withdraw to my Solana wallet" (cheap; also the redemption fallback).
 2. A **"pay from any chain" checkout demo page for a non-Mintent merchant**, reusing `packages/checkout`. This answers Illia's "universal checkout" idea and supports a `realworld` entry. Drop it if behind schedule.
-3. In-app redemption (needs a CC `partnerSlug`).
 4. ~~List and cancel on the CC marketplace.~~ Removed: a listing survives an NFT sale (D-016). Withdraw the card first, then list.
 5. Cash-out to any chain via Intents.
 6. NEAR Auth passkeys (mainnet approval). EVM-chain CC packs. Hosted demo kept up until 25 Nov.
@@ -94,17 +93,15 @@ Own inventory, own odds, a pricing engine, Magic Eden/Tensor connectors, OutLaye
 - **6 Nov 18:00, Blocker 1:** resolved 5 Nov. Core transfer from the derived address works; mainnet prizes are Core, so pNFT is out of scope (D-012).
 - **7 Nov, CC devnet or Tidepool unavailable:** build against recorded fixtures and a mock server for the AI-judge path. The mainnet run remains the proof.
 - **Testnet token mismatch (fixed rule):** Tidepool's devnet USDC (`7paf…r4Xr`) ≠ CC's devnet USDC-Dev. On testnet the treasury is pre-stocked with USDC-Dev, and the checkout settlement is recorded but not spent. On mainnet both are real USDC and the checkout payment funds the pack. The README states this.
-- **10 Nov, no `partnerSlug`:** ship withdraw-to-wallet, then redeem on collectorcrypt.com, and say so in the README.
 - **11 Nov 20:00, mainnet run failed:** fix it on the 12th. If it's still blocked, submit with the testnet demo plus whatever mainnet steps worked, labelled honestly.
 
 ### Decisions still open (yours)
 
 1. Confirm the design above (front end to CC plus card-account NFTs). Work since "go" assumes it.
-2. Email Collector Crypt for a `partnerSlug` (devnet and prod).
-3. Tracks: **`nfts` + `realworld` + `open`** is my recommendation (`realworld` is justified by the reusable checkout). `games` is not recommended.
-4. Mainnet budget (~$130–180 by 10 Nov) and the source chain (BTC or SOL).
-5. Mainnet payout account, Privy app id, 1Click partner key application.
-6. Neutral pack names in our UI.
+2. Tracks: **`nfts` + `realworld` + `open`** is my recommendation (`realworld` is justified by the reusable checkout). `games` is not recommended.
+3. Mainnet budget (~$130–180 by 11 Nov) and the source chain (SOL recommended, D-021).
+4. Mainnet payout account, Privy app id, 1Click partner key application, a paid RPC endpoint.
+5. Neutral pack names in our UI.
 
 ## Demo script (≤ 2 min)
 

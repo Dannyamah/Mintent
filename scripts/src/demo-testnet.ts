@@ -224,7 +224,7 @@ if (!state.handover) {
 }
 const afterHandover = await contract.getCard(A.tokenId);
 check("handover: NEAR says bob owns the token", afterHandover?.owner_id === state.bob);
-check("handover: on Solana the card did not move", (await chain.assetOwner(A.mint)).owner === A.card);
+if (!state.sold) check("handover: on Solana the card did not move", (await chain.assetOwner(A.mint)).owner === A.card);
 const old = await contract.signForCard(alice, A.tokenId, Buffer.from(new VersionedTransaction(new TransactionMessage({ payerKey: treasury, recentBlockhash: (await conn.getLatestBlockhash("confirmed")).blockhash, instructions: [coreTransferIx(new PublicKey(A.mint), collection, treasury, new PublicKey(A.card), attacker)] }).compileToV0Message()).message.serialize())).then(() => "signed", (e) => String(e));
 check("handover: the old owner's new signing request is rejected", /only the token owner/.test(old));
 
@@ -241,7 +241,7 @@ if (!state.sold) {
   save();
 }
 const proceeds = await chain.tokenBalance(A.card, cfg.ccPaymentMint);
-check("sell-back: USDC is now held by the NFT's own address", proceeds > 0n, `${Number(proceeds) / 1e6} USDC-Dev`);
+if (!state.withdrawn) check("sell-back: USDC is now held by the NFT's own address", proceeds > 0n, `${Number(proceeds) / 1e6} USDC-Dev`);
 check("sell-back: the card went back to Collector Crypt", (await chain.assetOwner(A.mint)).owner !== A.card);
 check("sell-back: NEAR records the release", (await contract.getCard(A.tokenId))?.record.status === "Released");
 
@@ -257,6 +257,21 @@ if (!state.withdrawn) {
   save();
 }
 check("withdraw: bob's own address received the USDC", (await chain.tokenBalance(bobWallet, cfg.ccPaymentMint)) > 0n);
+
+// ---------- withdraw the card itself: how an owner redeems the slab or lists it elsewhere ----------
+const aliceWallet = await deriveSolanaAddress("testnet", state.alice, "solana-1");
+if (!state.cardOut) {
+  say(`WITHDRAW CARD: alice moves token ${B.tokenId}'s card to her own Solana address ${aliceWallet}`);
+  const op = await ops.prepareWithdrawCard(B.tokenId, state.alice, aliceWallet);
+  const sig = await contract.signForCard(alice, B.tokenId, Buffer.from(op.message_hex, "hex"));
+  const done = await ops.finalize(op.id, Buffer.from(sig).toString("hex"));
+  say(`  ${explorer(done.tx_sig!)}`);
+  state.cardOutTx = done.tx_sig;
+  state.cardOut = true;
+  save();
+}
+check("withdraw card: Solana says alice's own address holds the card", (await chain.assetOwner(B.mint)).owner === aliceWallet);
+check("withdraw card: NEAR records the release", (await contract.getCard(B.tokenId))?.record.status === "Released");
 
 // ---------- independent verification ----------
 say(`Independent check of token ${A.tokenId} and ${B.tokenId} from public data only`);

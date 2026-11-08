@@ -11,6 +11,18 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-022 · 8 Nov · No Collector Crypt partnership, keys or contact during the build
+
+- **Decision (yours, stated before the build):** Mintent is built entirely on CC's public, keyless APIs. Any partnership comes after the full build.
+- **Why:** the product must work without anyone's permission.
+- **Impact:**
+  - In-app redemption and the Invoiced API are out of scope, along with `partnerSlug` and CC API keys.
+  - **Withdraw to the owner's own wallet is now a must-have:** that's how a card is redeemed on CC's site or listed on a marketplace.
+  - CC's anonymous rate limits apply, which is ample for a demo.
+  - Rev share (D-017) is a post-hackathon idea only.
+  - The README must say plainly that Mintent isn't affiliated with Collector Crypt and uses its public APIs.
+- **Status:** Adopted.
+
 ### D-021 · 8 Nov · Mainnet demo pays from SOL live; BTC is a recorded clip
 
 - **Why:** a mainnet dry quote estimates **802 s (about 13 minutes)** for BTC, against 17–42 s for SOL, NEAR USDC, Base, Arbitrum and ETH.
