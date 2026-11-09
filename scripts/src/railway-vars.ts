@@ -17,6 +17,15 @@ const dotEnv = envFile(".env");
 const webEnv = envFile("apps/web/.env.local");
 const demo = JSON.parse(readFileSync(join(root, "scripts/.demo-state.json"), "utf8")) as { contract: string; relayer: string };
 const FUNDER = "mintent-dev-mw21w9ki.testnet";
+// The Keeper runs only where its account exists. Mainnet's is created separately, after approval.
+const keeperVars = (network: string, account: string): Record<string, string> => {
+  try {
+    return { KEEPER_ACCOUNT: account, KEEPER_PRIVATE_KEY: key(network, account) };
+  } catch {
+    console.log(`no key for ${account}: the ${network} relayer runs without a Keeper`);
+    return {};
+  }
+};
 if (!/mainnet/i.test(dotEnv.SOLANA_RPC_URL ?? "")) throw new Error("SOLANA_RPC_URL in .env should be your mainnet Helius URL");
 
 const services: Record<string, Record<string, string>> = {
@@ -31,6 +40,7 @@ const services: Record<string, Record<string, string>> = {
     DEMO_FUNDER_PRIVATE_KEY: key("testnet", FUNDER),
     RELAYER_DB: "/data/relayer.sqlite",
     WEB_ORIGIN: webTestnet,
+    ...keeperVars("testnet", "keeper.mintent-dev-mw21w9ki.testnet"),
   },
   "relayer-mainnet": {
     RAILWAY_DOCKERFILE_PATH: "deploy/relayer.Dockerfile",
@@ -43,6 +53,7 @@ const services: Record<string, Record<string, string>> = {
     ...(dotEnv.ONECLICK_JWT ? { ONECLICK_JWT: dotEnv.ONECLICK_JWT } : {}),
     RELAYER_DB: "/data/relayer.sqlite",
     WEB_ORIGIN: webMainnet,
+    ...keeperVars("mainnet", "keeper.xinju.near"),
   },
   "web-testnet": {
     RAILWAY_DOCKERFILE_PATH: "deploy/web.Dockerfile",

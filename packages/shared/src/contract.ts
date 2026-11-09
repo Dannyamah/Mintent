@@ -19,6 +19,8 @@ export interface CardView {
     insured_value_usd_cents: string | null;
     release_reason: string | null;
   };
+  /** The owner's Keeper permission, if any. USDC base units and unix ms, as strings. */
+  keeper?: { agent: string; min_price: string; expires_ms: string } | null;
 }
 
 const TGAS = 1_000_000_000_000n;
@@ -102,6 +104,15 @@ export class MintentContract {
   /** The token owner's call. In the app this runs in the user's own session, signed by the user's key. */
   async signForCard(owner: Account, tokenId: string, message: Uint8Array): Promise<Uint8Array> {
     return signatureFrom(await owner.callFunction({ contractId: this.contractId, methodName: "sign_for_card", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 1n, gas: 100n * TGAS }));
+  }
+
+  /** The Keeper's call, signed with the Keeper's own key. The contract decides whether it may. */
+  async keeperSign(keeper: Account, tokenId: string, message: Uint8Array): Promise<Uint8Array> {
+    return signatureFrom(await retryNonce(() => keeper.callFunction({ contractId: this.contractId, methodName: "keeper_sign", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 1n, gas: 100n * TGAS })));
+  }
+
+  async grantKeeper(owner: Account, tokenId: string, agent: string, minPriceUnits: bigint, expiresMs: number): Promise<void> {
+    await owner.callFunction({ contractId: this.contractId, methodName: "grant_keeper", args: { token_id: tokenId, agent_id: agent, min_price: minPriceUnits.toString(), expires_ms: String(expiresMs) }, deposit: 1n, gas: 30n * TGAS });
   }
 
   async transfer(owner: Account, receiver: string, tokenId: string): Promise<void> {

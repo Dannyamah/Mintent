@@ -4,3 +4,4 @@ export * from "./orders.js";
 export * from "./ops.js";
 export * from "./reconcile.js";
 export * from "./runtime.js";
+export * from "./keeper.js";

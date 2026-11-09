@@ -7,6 +7,7 @@ import { CardOps } from "./ops.js";
 import { OrderPipeline } from "./orders.js";
 import { reconcile } from "./reconcile.js";
 import { createRuntime } from "./runtime.js";
+import { createKeeper } from "./keeper.js";
 import { createTestnetUpkeep, testPayLimits, testPayRefusal } from "./testnet-upkeep.js";
 
 /** Neutral names in our own UI: no franchise branding (see docs/PLAN.md). */
@@ -51,6 +52,9 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
   const funderId = config.network === "testnet" ? process.env.DEMO_FUNDER : undefined;
   const funder = funderId ? (process.env.DEMO_FUNDER_PRIVATE_KEY ? accountFromKey("testnet", funderId, process.env.DEMO_FUNDER_PRIVATE_KEY, process.env.NEAR_RPC_URL) : loadAccount("testnet", funderId)) : null;
   const limits = testPayLimits();
+  // The Keeper signs with its own account, which owners name in their permission. Without one, the feature is off.
+  const keeperId = process.env.KEEPER_ACCOUNT || null;
+  const keeperAccount = keeperId ? (process.env.KEEPER_PRIVATE_KEY ? accountFromKey(config.network, keeperId, process.env.KEEPER_PRIVATE_KEY, process.env.NEAR_RPC_URL) : loadAccount(config.network, keeperId)) : null;
   let gallery: { at: number; pulls: RecentPull[] } = { at: 0, pulls: [] };
 
   const packView = (m: Awaited<ReturnType<typeof d.cc.machines>>[number]) => ({ code: m.code, name: neutralPackName(m.price), price: m.price, odds: m.odds, expectedValue: m.ev, buybackPct: m.instantBuyback });
@@ -87,7 +91,7 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
   const assetView = (t: { assetId: string; symbol: string; blockchain: string; decimals: number; price?: number }) => ({ assetId: t.assetId, symbol: t.symbol, chain: t.blockchain, decimals: t.decimals, price: t.price });
 
   const routes: [string, RegExp, (m: RegExpMatchArray, b: any, req: IncomingMessage) => Promise<unknown>][] = [
-    ["GET", /^\/health$/, async () => ({ ok: true, network: config.network, contract: contractId, treasury: d.chain.treasury.toBase58(), checkout: d.checkout.name, mpcContract: config.mpcContract, serviceFeeBps: config.serviceFeeBps, defaultPack: CONFIGS[config.network].defaultPack, nearRpcs: [NETWORKS[config.network].rpc, ...NETWORKS[config.network].rpcFallbacks], testPay: Boolean(funder), testPayAsset: funder ? TESTNET_PAY_ASSET : null })],
+    ["GET", /^\/health$/, async () => ({ ok: true, network: config.network, contract: contractId, treasury: d.chain.treasury.toBase58(), checkout: d.checkout.name, mpcContract: config.mpcContract, serviceFeeBps: config.serviceFeeBps, defaultPack: CONFIGS[config.network].defaultPack, nearRpcs: [NETWORKS[config.network].rpc, ...NETWORKS[config.network].rpcFallbacks], testPay: Boolean(funder), keeper: keeperId, testPayAsset: funder ? TESTNET_PAY_ASSET : null })],
     ["GET", /^\/gallery$/, async () => {
       return gallery.pulls;
     }],
@@ -118,7 +122,7 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
       const ops = d.db.opsByActor(account);
       const activity = [
         ...orders.map((o) => ({ kind: "order", at: o.created_at, state: o.state, tokenId: o.token_id, name: o.card_name, rarity: o.rarity, packPriceUnits: o.price_units, tx: o.buy_sig, orderId: o.id })),
-        ...ops.filter((o) => o.state === "sent").map((o) => ({ kind: o.kind, at: o.created_at, state: o.state, tokenId: o.token_id, detail: JSON.parse(o.detail), tx: o.tx_sig, swapStatus: o.swap_status, swapAmountOut: o.swap_amount_out })),
+        ...ops.filter((o) => o.state === "sent").map((o) => ({ kind: o.kind, at: o.created_at, byKeeper: Boolean((JSON.parse(o.detail) as { keeper?: string }).keeper), state: o.state, tokenId: o.token_id, detail: JSON.parse(o.detail), tx: o.tx_sig, swapStatus: o.swap_status, swapAmountOut: o.swap_amount_out })),
       ].sort((a, b) => b.at - a.at).slice(0, 40);
       return { account, cards, active: orders.filter((o) => ["awaiting_payment", "paid", "minted", "purchased", "needs_attention"].includes(o.state)).map((o) => ({ orderId: o.id, state: o.state, status: o.checkout_status, packType: o.pack_type, priceUnits: o.price_units, createdAt: o.created_at, lastError: o.last_error })), activity };
     }],
@@ -235,13 +239,15 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
   const upkeep = funder ? createTestnetUpkeep(d, funder) : null;
   if (upkeep) void upkeep();
   const keep = upkeep ? setInterval(() => void upkeep(), 5 * 60_000) : null;
+  const keeper = keeperAccount ? createKeeper(d, ops, keeperAccount) : null;
+  const keeping = keeper ? setInterval(() => void keeper().catch((e) => d.log(`keeper: ${e}`)), 30_000) : null;
   let cashingOut = false;
   const cashOuts = setInterval(() => {
     if (cashingOut) return; // funding a testnet deposit can outlast a tick, and mustn't run twice
     cashingOut = true;
     void ops.advanceCashOuts().catch((e) => d.log(`cash-outs: ${e}`)).finally(() => { cashingOut = false; });
   }, 5_000);
-  return { server, deps: d, stop: () => { clearInterval(tick); clearInterval(rec); clearInterval(wall); clearInterval(funds); clearInterval(cashOuts); if (keep) clearInterval(keep); server.close(); } };
+  return { server, deps: d, stop: () => { clearInterval(tick); clearInterval(rec); clearInterval(wall); clearInterval(funds); clearInterval(cashOuts); if (keep) clearInterval(keep); if (keeping) clearInterval(keeping); server.close(); } };
 }
 
 if (process.argv[1]?.endsWith("server.ts")) {

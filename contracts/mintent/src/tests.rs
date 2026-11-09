@@ -568,3 +568,224 @@ fn out_of_range_program_index_is_refused() {
 fn non_canonical_lengths_are_refused() {
     parse_message(&[1, 0, 0, 0x81, 0x00]).unwrap_or_else(|e| panic!("{e}"));
 }
+
+// ---------- keeper ----------
+// In these messages fake(2) is the card's address (the second signer), fake(5) the card, fake(7) Collector Crypt's
+// destination and fake(9) the card address's USDC account.
+
+fn keeper() -> AccountId {
+    accounts(4)
+}
+const FLOOR: u64 = 15_000_000;
+
+fn ata_create(owner: Pubkey, account: Pubkey, mint: Pubkey) -> Ix {
+    Ix { program: key(ATA_PROGRAM), accounts: vec![fake(1), account, owner, mint, key(SYSTEM_PROGRAM), key(TOKEN_PROGRAM)], data: vec![1] }
+}
+fn core_move(asset: Pubkey, authority: Pubkey, to: Pubkey) -> Ix {
+    Ix { program: key(MPL_CORE_PROGRAM), accounts: vec![asset, fake(11), fake(1), authority, to, key(SYSTEM_PROGRAM), fake(12)], data: vec![14, 0] }
+}
+fn cc_pay(seller: Pubkey, asset: Pubkey, dest: Pubkey, proceeds: Pubkey, mint: Pubkey, price: u64) -> Ix {
+    let mut data = vec![196, 1, 233, 204, 98, 232, 22, 54];
+    data.extend_from_slice(&price.to_le_bytes());
+    data.extend_from_slice(&[0u8; 20]);
+    Ix {
+        program: key(CC_BUYBACK_PROGRAM),
+        accounts: vec![fake(13), seller, asset, dest, fake(10), proceeds, mint, fake(14), fake(15), fake(16), key(SYSTEM_PROGRAM), key(TOKEN_PROGRAM), key(MEMO_PROGRAM)],
+        data,
+    }
+}
+fn ed25519_quote() -> Ix {
+    Ix { program: key(ED25519_PROGRAM), accounts: vec![], data: vec![1, 0, 48, 0] }
+}
+
+/// The sell-back the relayer builds, with each part replaceable to tamper with it.
+fn sellback_with(price: u64, f: impl FnOnce(&mut Vec<Ix>)) -> String {
+    let mut ixs = vec![
+        advance_nonce(key(NONCE)),
+        ed25519_quote(),
+        ata_create(fake(2), fake(9), key(USDC)),
+        core_move(fake(5), fake(2), fake(7)),
+        cc_pay(fake(2), fake(5), fake(7), fake(9), key(USDC), price),
+    ];
+    f(&mut ixs);
+    hx(build(&ixs, true))
+}
+fn sellback(price: u64) -> String {
+    sellback_with(price, |_| {})
+}
+
+/// Token "0" holds card fake(5), and alice has given keeper() a permission with a 15 USDC floor for an hour.
+fn kept() -> Contract {
+    let mut c = setup();
+    ctx(relayer(), 0);
+    c.record_open("0".into(), "m".into(), bs58::encode(fake(5)).into_string(), "n".into(), "Common".into(), U64(1), U64(1), None);
+    ctx(alice(), 1);
+    c.grant_keeper("0".into(), keeper(), U64(FLOOR), U64(T0_MS + 3_600_000));
+    c
+}
+
+#[test]
+fn keeper_sells_back_at_or_above_the_floor_and_the_card_exits() {
+    let mut c = kept();
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), sellback(15_300_000));
+    let (receiver, args) = scheduled_sign_args();
+    assert_eq!(receiver, MPC);
+    assert_eq!(args["request"]["path"], "card/0");
+    let view = c.get_card("0".into()).unwrap();
+    assert_eq!(view.record.status, CardStatus::Exiting);
+    assert!(!view.transferable);
+    assert_eq!(view.keeper.unwrap().agent, keeper());
+}
+
+#[test]
+fn keeper_can_sell_at_exactly_the_floor() {
+    let mut c = kept();
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), sellback(FLOOR));
+}
+
+#[test]
+#[should_panic(expected = "below the owner's minimum")]
+fn keeper_cannot_sell_below_the_floor() {
+    let mut c = kept();
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), sellback(FLOOR - 1));
+}
+
+#[test]
+#[should_panic(expected = "only this token's keeper")]
+fn only_the_named_agent_can_use_the_permission() {
+    let mut c = kept();
+    ctx(bob(), 1);
+    let _ = c.keeper_sign("0".into(), sellback(20_000_000));
+}
+
+#[test]
+#[should_panic(expected = "permission has ended")]
+fn the_permission_ends_on_time() {
+    let mut c = kept();
+    ctx_at(keeper(), 1, T0_MS + 3_600_000);
+    let _ = c.keeper_sign("0".into(), sellback(20_000_000));
+}
+
+#[test]
+#[should_panic(expected = "has no keeper")]
+fn the_owner_can_revoke() {
+    let mut c = kept();
+    ctx(alice(), 1);
+    c.revoke_keeper("0".into());
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), sellback(20_000_000));
+}
+
+#[test]
+fn selling_the_nft_clears_the_permission() {
+    let mut c = kept();
+    ctx(alice(), 1);
+    c.nft_transfer(bob(), "0".into(), None, None);
+    assert!(c.get_keeper("0".into()).is_none());
+    assert!(c.get_card("0".into()).unwrap().keeper.is_none());
+}
+
+#[test]
+#[should_panic(expected = "only the token owner can set a keeper")]
+fn only_the_owner_can_grant() {
+    let mut c = kept();
+    ctx(bob(), 1);
+    c.grant_keeper("0".into(), bob(), U64(1), U64(T0_MS + 1000));
+}
+
+#[test]
+#[should_panic(expected = "attach at least 1 yoctoNEAR")]
+fn granting_needs_a_deposit_so_function_call_keys_cannot() {
+    let mut c = kept();
+    ctx(alice(), 0);
+    c.grant_keeper("0".into(), bob(), U64(1), U64(T0_MS + 1000));
+}
+
+#[test]
+#[should_panic(expected = "in the next 90 days")]
+fn a_permission_cannot_be_endless() {
+    let mut c = kept();
+    ctx(alice(), 1);
+    c.grant_keeper("0".into(), keeper(), U64(1), U64(T0_MS + MAX_KEEPER_MS + 1));
+}
+
+#[test]
+#[should_panic(expected = "may only sign a sell-back")]
+fn attack_keeper_withdraws_the_card_to_itself() {
+    let mut c = kept();
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), hx(build(&[advance_nonce(key(NONCE)), core_move(fake(5), fake(2), fake(66))], true)));
+}
+
+#[test]
+#[should_panic(expected = "may only sign a sell-back")]
+fn attack_keeper_drains_the_usdc() {
+    let mut c = kept();
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), sellback_with(20_000_000, |ixs| ixs.push(usdc_transfer())));
+}
+
+#[test]
+#[should_panic(expected = "doesn't go to the card's own address")]
+fn attack_keeper_sends_the_proceeds_elsewhere() {
+    let mut c = kept();
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), sellback_with(20_000_000, |ixs| {
+        ixs[2] = ata_create(fake(66), fake(67), key(USDC));
+        ixs[4] = cc_pay(fake(2), fake(5), fake(7), fake(67), key(USDC), 20_000_000);
+    }));
+}
+
+#[test]
+#[should_panic(expected = "doesn't go to the card's own address")]
+fn attack_keeper_creates_the_right_account_but_pays_another() {
+    let mut c = kept();
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), sellback_with(20_000_000, |ixs| ixs[4] = cc_pay(fake(2), fake(5), fake(7), fake(67), key(USDC), 20_000_000)));
+}
+
+#[test]
+#[should_panic(expected = "different destinations")]
+fn attack_keeper_sends_the_card_somewhere_else() {
+    let mut c = kept();
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), sellback_with(20_000_000, |ixs| ixs[3] = core_move(fake(5), fake(2), fake(66))));
+}
+
+#[test]
+#[should_panic(expected = "different card")]
+fn attack_keeper_sells_a_different_card() {
+    let mut c = kept();
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), sellback_with(20_000_000, |ixs| {
+        ixs[3] = core_move(fake(55), fake(2), fake(7));
+        ixs[4] = cc_pay(fake(2), fake(55), fake(7), fake(9), key(USDC), 20_000_000);
+    }));
+}
+
+#[test]
+#[should_panic(expected = "isn't the card's holder")]
+fn attack_keeper_names_itself_as_seller() {
+    let mut c = kept();
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), sellback_with(20_000_000, |ixs| ixs[4] = cc_pay(fake(66), fake(5), fake(7), fake(9), key(USDC), 20_000_000)));
+}
+
+#[test]
+#[should_panic(expected = "one step of each kind")]
+fn attack_keeper_hides_a_second_card_transfer() {
+    let mut c = kept();
+    ctx(keeper(), 1);
+    let _ = c.keeper_sign("0".into(), sellback_with(20_000_000, |ixs| ixs.push(core_move(fake(5), fake(2), fake(66)))));
+}
+
+#[test]
+fn the_owner_keeps_full_control_while_a_keeper_is_set() {
+    let mut c = kept();
+    ctx(alice(), 1);
+    let _ = c.sign_for_card("0".into(), hx(build(&[advance_nonce(key(NONCE)), core_move(fake(5), fake(2), fake(66))], true)));
+    assert_eq!(c.get_card("0".into()).unwrap().record.status, CardStatus::Exiting);
+}

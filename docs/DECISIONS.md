@@ -11,6 +11,16 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-033 · 9 Nov · The Keeper; tracks chosen
+
+- **Your decisions:** build the Keeper, and enter `nfts`, `security`, `agents` and `open`.
+- **What it is:** an owner gives an agent a narrow permission on one NFT: sell the card back to Collector Crypt at no less than a minimum, until a set time. The agent has its own NEAR account and runs alongside the relayer. Its rule is simple: sell while the offer meets the minimum.
+- **Enforced by the contract (`keeper_sign`):** only a sell-back of this NFT's card, paid into the card's own address, at or above the minimum, before the end. The contract doesn't need to know the card's Solana address. Only the asset's holder can authorise its transfer, so everything is tied to that holder. Collector Crypt's program rejects a changed price or destination. The permission clears when the NFT changes hands or the card leaves. Granting and revoking need 1 yoctoNEAR, so function-call keys can't do either. The owner keeps full control.
+- **The relayer double-checks:** it won't co-sign if the owner withdraws the permission or sells the NFT before the sale lands. The sale is recorded as the owner's, and the Keeper pays its own gas.
+- **Upgrade, no migration:** permissions live under a new storage key outside the contract's state struct, so the contract upgrades in place. Testnet `mintent-con-mw7mmwr5.testnet` was upgraded on 9 Nov ([tx](https://testnet.nearblocks.io/txns/ESeJYqkwV4cZKnHZ15BoVgEngAx4CXrhsmogcojVnCx)) and kept all 23 tokens. **Mainnet is still on the old code** until you approve the upgrade.
+- **Honest framing:** the Keeper's decision is a rule, not a model. The point is the security: an agent can act for you without being able to take anything.
+- **Status:** Adopted. Proven live on testnet (`EVIDENCE.md`).
+
 ### D-032 · 9 Nov · Hosting on Railway; public-site protections; cards only
 
 - **Hosting (your choice):** four Railway services from one repo: a relayer and a site for each network. The relayers keep their databases on a Railway volume. Keys go into Railway variables through a local helper (`scripts/src/railway-vars.ts`) and never into images or the repo. Railway has deprecated config files for new services, so each Dockerfile is picked by the `RAILWAY_DOCKERFILE_PATH` variable. See `DEPLOY.md`.

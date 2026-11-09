@@ -61,7 +61,22 @@ enum StorageKey {
     SignLocks,
     NonceAccounts,
     PaymentMints,
+    Keepers,
 }
+
+/// An owner's permission for one agent to sell this token's card back to Collector Crypt, at no less than `min_price`
+/// (USDC base units), until `expires_ms`. The money goes to the card's own address, so it stays with the NFT. The agent can't
+/// withdraw the card, move USDC or transfer the NFT. Cleared when the NFT changes hands.
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeeperGrant {
+    pub agent: AccountId,
+    pub min_price: U64,
+    pub expires_ms: U64,
+}
+
+/// Longest permission an owner can give at once.
+pub const MAX_KEEPER_MS: u64 = 90 * 24 * 60 * 60 * 1000;
 
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Debug, PartialEq)]
@@ -101,6 +116,8 @@ pub struct CardView {
     /// Unix ms until which the token can't be transferred because of a recent card signature (0 if never).
     pub locked_until_ms: U64,
     pub transferable: bool,
+    /// The owner's Keeper permission, if any.
+    pub keeper: Option<KeeperGrant>,
 }
 
 /// Mirrors the MPC contract's `payload_v2` enum: `{"Eddsa": "<hex>"}`.
@@ -296,6 +313,7 @@ impl Contract {
         );
         record.status = CardStatus::Released;
         record.release_reason = Some(reason.clone());
+        Self::keepers().remove(&token_id);
         self.cards.insert(token_id.clone(), record);
         emit("card_released", json!({ "token_id": token_id, "reason": reason }));
     }
@@ -323,10 +341,73 @@ impl Contract {
         require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
         let owner = self.tokens.owner_by_id.get(&token_id).unwrap_or_else(|| env::panic_str("unknown token"));
         require!(env::predecessor_account_id() == owner, "only the token owner can sign for this card");
+        let classified = self.classify(&payload_hex);
+        self.issue_card_signature(token_id, payload_hex, owner, classified, false)
+    }
 
+    // ---------- keeper ----------
+
+    /// The owner lets `agent_id` sell this card back for at least `min_price` USDC base units until `expires_ms`.
+    /// Replaces any earlier permission. Requires 1 yoctoNEAR, so a function-call key can't grant one.
+    #[payable]
+    pub fn grant_keeper(&mut self, token_id: TokenId, agent_id: AccountId, min_price: U64, expires_ms: U64) {
+        require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
+        let owner = self.tokens.owner_by_id.get(&token_id).unwrap_or_else(|| env::panic_str("unknown token"));
+        require!(env::predecessor_account_id() == owner, "only the token owner can set a keeper");
+        let record = self.cards.get(&token_id).unwrap_or_else(|| env::panic_str("unknown token"));
+        require!(record.status == CardStatus::Opened, "the card isn't held by this token");
+        let now = env::block_timestamp_ms();
+        require!(expires_ms.0 > now && expires_ms.0 <= now + MAX_KEEPER_MS, "the keeper's end must be in the next 90 days");
+        require!(min_price.0 > 0, "set a minimum price");
+        let grant = KeeperGrant { agent: agent_id, min_price, expires_ms };
+        Self::keepers().insert(&token_id, &grant);
+        emit("keeper_granted", json!({ "token_id": token_id, "owner": owner, "agent": grant.agent, "min_price": grant.min_price, "expires_ms": grant.expires_ms }));
+    }
+
+    #[payable]
+    pub fn revoke_keeper(&mut self, token_id: TokenId) {
+        require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
+        let owner = self.tokens.owner_by_id.get(&token_id).unwrap_or_else(|| env::panic_str("unknown token"));
+        require!(env::predecessor_account_id() == owner, "only the token owner can remove a keeper");
+        if Self::keepers().remove(&token_id).is_some() {
+            emit("keeper_revoked", json!({ "token_id": token_id, "by": owner }));
+        }
+    }
+
+    /// The keeper asks for a signature on a sell-back. The base signing policy applies, and the message must be a Collector
+    /// Crypt sell-back of this card into its own address at or above the owner's floor (`solana::check_keeper_sellback`).
+    #[payable]
+    pub fn keeper_sign(&mut self, token_id: TokenId, payload_hex: String) -> Promise {
+        require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
+        let grant = Self::keepers().get(&token_id).unwrap_or_else(|| env::panic_str("this token has no keeper"));
+        require!(env::predecessor_account_id() == grant.agent, "only this token's keeper can sign");
+        require!(env::block_timestamp_ms() < grant.expires_ms.0, "the keeper's permission has ended");
+        let record = self.cards.get(&token_id).cloned().unwrap_or_else(|| env::panic_str("unknown token"));
+        require!(record.status == CardStatus::Opened, "the card isn't held by this token");
+        let asset = record.card_mint.as_deref().and_then(|m| solana::decode_pubkey(m).ok()).unwrap_or_else(|| env::panic_str("the card has no address"));
+
+        let classified = self.classify(&payload_hex);
+        require!(classified.moves_card && classified.uses_durable_nonce, "a keeper may only sign a sell-back");
+        let bytes = hex::decode(&payload_hex).unwrap_or_else(|_| env::panic_str("payload_hex is not valid hex"));
+        let msg = solana::parse_message(&bytes).unwrap_or_else(|e| env::panic_str(e));
+        let mints: Vec<solana::Pubkey> = self.payment_mints.iter().filter_map(|a| solana::decode_pubkey(a).ok()).collect();
+        let price = solana::check_keeper_sellback(&msg, &asset, &mints).unwrap_or_else(|e| env::panic_str(e));
+        require!(price >= grant.min_price.0, "the price is below the owner's minimum");
+        self.issue_card_signature(token_id, payload_hex, grant.agent, classified, true)
+    }
+
+    pub fn get_keeper(&self, token_id: TokenId) -> Option<KeeperGrant> {
+        Self::keepers().get(&token_id)
+    }
+
+    fn keepers() -> near_sdk::collections::LookupMap<TokenId, KeeperGrant> {
+        near_sdk::collections::LookupMap::new(StorageKey::Keepers)
+    }
+
+    /// Lock the token and ask the MPC network to sign for `card/<token_id>`. Callers have already checked who may ask.
+    fn issue_card_signature(&mut self, token_id: TokenId, payload_hex: String, by: AccountId, classified: solana::Classified, keeper: bool) -> Promise {
         let mut record = self.cards.get(&token_id).cloned().unwrap_or_else(|| env::panic_str("unknown token"));
         require!(record.status != CardStatus::Sealed, "pack is not opened yet");
-        let classified = self.classify(&payload_hex);
         if classified.moves_card {
             require!(record.status != CardStatus::Released, "card has already left this address");
             record.status = CardStatus::Exiting;
@@ -336,7 +417,7 @@ impl Contract {
         self.sign_locks.insert(token_id.clone(), locked_until);
 
         let path = card_path_for(&token_id);
-        emit("sign_requested", json!({ "token_id": token_id, "path": path, "by": owner, "payload_bytes": payload_hex.len() / 2, "moves_card": classified.moves_card, "uses_durable_nonce": classified.uses_durable_nonce, "locked_until_ms": U64(locked_until) }));
+        emit("sign_requested", json!({ "token_id": token_id, "path": path, "by": by, "keeper": keeper, "payload_bytes": payload_hex.len() / 2, "moves_card": classified.moves_card, "uses_durable_nonce": classified.uses_durable_nonce, "locked_until_ms": U64(locked_until) }));
         self.mpc_sign(path, payload_hex)
     }
 
@@ -370,7 +451,8 @@ impl Contract {
         let owner_id = self.tokens.owner_by_id.get(&token_id)?;
         let locked_until_ms = self.sign_locks.get(&token_id).copied().unwrap_or(0);
         let transferable = record.status != CardStatus::Exiting && env::block_timestamp_ms() >= locked_until_ms;
-        Some(CardView { solana_path: card_path_for(&token_id), token_id, owner_id, record, locked_until_ms: U64(locked_until_ms), transferable })
+        let keeper = Self::keepers().get(&token_id);
+        Some(CardView { solana_path: card_path_for(&token_id), token_id, owner_id, record, locked_until_ms: U64(locked_until_ms), transferable, keeper })
     }
 
     // ---------- internals ----------
@@ -456,6 +538,8 @@ impl NonFungibleTokenCore for Contract {
     #[payable]
     fn nft_transfer(&mut self, receiver_id: AccountId, token_id: TokenId, approval_id: Option<u64>, memo: Option<String>) {
         self.assert_transferable(&token_id);
+        // A permission is the owner's choice, so it never passes to the next owner.
+        Self::keepers().remove(&token_id);
         self.tokens.nft_transfer(receiver_id, token_id, approval_id, memo)
     }
 
@@ -469,6 +553,7 @@ impl NonFungibleTokenCore for Contract {
         msg: String,
     ) -> PromiseOrValue<bool> {
         self.assert_transferable(&token_id);
+        Self::keepers().remove(&token_id);
         self.tokens.nft_transfer_call(receiver_id, token_id, approval_id, memo, msg)
     }
 

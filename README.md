@@ -11,9 +11,15 @@ Real graded trading cards, paid for from any chain, owned as NEAR NFTs, and cash
 
 Each pack you buy becomes a NEP-171 token on NEAR. The token controls its own Solana address through NEAR Chain Signatures, and that address holds the real card, which is backed by a physical graded slab in Collector Crypt's vault. **Transfer the NFT on NEAR and control of the card moves with it, with no Solana transaction.** Whoever holds the NFT can sell the card back, cash out the money as any coin on any chain, or withdraw the card, and the previous owner can't. Sign in with email or a wallet you already have.
 
-Built at NEAR HACKATHON for the `nfts` track ("NFTs that do something"): each NFT here is an account that holds an asset and money.
+**The Keeper** answers a question every agent wallet faces: how do you let an agent act with your money without giving it the keys to everything? An owner lets an agent sell their card back to Collector Crypt while the offer meets their minimum, because these offers don't last. The **contract** limits the agent to exactly that: this card, into this NFT's own address, at or above the minimum, until a set time. It can't withdraw the card, move USDC or transfer the NFT, even with a stolen key. We had it try on testnet, and the contract refused all three attempts on-chain.
 
-> **Status, 9 Nov 2026: everything below has run on public test networks with no real money. Nothing has run on mainnet yet.** See [Limits](#limits).
+Built at NEAR HACKATHON for these tracks:
+- **`nfts`:** each NFT is an account that holds a real card and money, and carries permissions.
+- **`security`:** the Keeper is a policy-limited agent wallet, enforced on-chain.
+- **`agents`:** the Keeper is an agent that earns for its owner.
+- **`open`:** the whole product is chain abstraction: pay from any chain, own on NEAR, cash out anywhere.
+
+> **Status, 9 Nov 2026: everything below has run on public test networks with no real money. The contract is deployed on mainnet, but no purchase has run there yet.** See [Limits](#limits).
 
 **Try it:** [testnet, free](https://web-testnet-production-2eb9.up.railway.app) · [mainnet, real money](https://web-mainnet-production-b5e0.up.railway.app)
 
@@ -36,9 +42,9 @@ pnpm verify:pull mintent-con-mw7mmwr5.testnet 1   # withdrawn to the owner's own
 
 ```bash
 pnpm --filter @mintent/checkout test   # 7 pass: checkout
-pnpm --filter @mintent/relayer test    # 65 pass: order pipeline, sell-back, cash-out, recovery
+pnpm --filter @mintent/relayer test    # 70 pass: order pipeline, sell-back, cash-out, recovery, Keeper
 pnpm test:web                          # 16 pass: the signing check refuses tampered messages and wrong fees; Privy signer matches a local key
-pnpm test:contracts                    # contract, including the attack tests; needs Rust and cargo-near
+pnpm test:contracts                    # 65 unit tests + 1 sandbox run, including the attack and Keeper tests; needs Rust and cargo-near
 ```
 
 Every step of the real runs, with transaction links, is in [docs/EVIDENCE.md](docs/EVIDENCE.md).
@@ -54,6 +60,7 @@ Every step of the real runs, with transaction links, is in [docs/EVIDENCE.md](do
 | Pay from another chain | A [payment on Base Sepolia](https://sepolia.basescan.org/tx/0x4c49ae3b52cba9df6d1331d922edb7bbe4b9872449d4a038eda794dfbdaa7ce7) produced token 13 |
 | Cash out to any chain | Sell-back money arrived as USDC on [Base Sepolia](https://sepolia.basescan.org/address/0x55528b52ab7000887f0bf1543c5b878c2cae66ca) and on NEAR ([evidence](docs/EVIDENCE.md)) |
 | The app won't sign what you didn't ask for | `apps/web/e2e/tamper.mjs` plays a compromised relayer against the real app: refused, nothing signed, card unmoved. `apps/web/e2e/verify.test.mts` covers the other attacks |
+| An agent can act for you without being able to take anything | The Keeper's real key, refused three times on-chain: [withdraw the card](https://testnet.nearblocks.io/txns/WhGkVWc4J77iTC9JdoAmyfYkEdrUZEtMjdshsaoT8MS), [sell below the minimum](https://testnet.nearblocks.io/txns/G2BBMnbX6F2JuUnN5PzXzvYBA1wUNB9uPm5vv5ASLCFU), [pay itself](https://testnet.nearblocks.io/txns/Wg5fE2rrFC8guFbvAP4JsJ7WFVErhpjjCE6VELxVDta). Then it [sold at the owner's minimum](https://explorer.solana.com/tx/Va3k3rnEHyv2UNMaPsmwwdnzQFspGgNyA3H5cYcGNqUAikTDxDcxvzNZdnb6qP53RY36kXyAvnweVAhDZjBXwNZ?cluster=devnet), into the NFT. `pnpm verify:pull mintent-con-mw7mmwr5.testnet 23` |
 | A paid order recovers from outages, and is never paid for twice | Tests in `services/relayer/test/relayer.test.ts`; recovery also [ran live](docs/EVIDENCE.md) |
 
 ## How it works
@@ -63,7 +70,8 @@ Every step of the real runs, with transaction links, is in [docs/EVIDENCE.md](do
 3. **Buy.** The relayer asks Collector Crypt for a pack with the token's derived address as the recipient, inspects the transaction, and has the contract sign it through Chain Signatures.
 4. **Open.** The card arrives at the token's address, and NEAR records it. The fairness proof is Collector Crypt's own VRF.
 5. **Own.** Only the current NFT owner can call `sign_for_card`. The contract parses each Solana message before asking the MPC network to sign, so a seller can't pre-sign a way to take the card after selling.
-6. **Cash out.** Sell-back USDC lands in the NFT's own address. The owner picks a coin and chain, sees a quote, and signs. Mintent takes 1% (at least $0.25) on USDC leaving an NFT, shown before signing. Withdrawing the card is free. The NFT's address pays a 1Click deposit address, and the swap pays out. A refund returns to the NFT's address.
+6. **Keep.** The owner can give an agent a narrow permission, `grant_keeper`. Its only signing path, `keeper_sign`, signs only a Collector Crypt sell-back of this card, into the card's own address, at or above the owner's minimum, before the end. The contract ties every account in the message to the card's holder, which only that address can be, because only the holder can authorise the card's transfer. The permission clears when the NFT changes hands.
+7. **Cash out.** Sell-back USDC lands in the NFT's own address. The owner picks a coin and chain, sees a quote, and signs. Mintent takes 1% (at least $0.25) on USDC leaving an NFT, shown before signing. Withdrawing the card is free. The NFT's address pays a 1Click deposit address, and the swap pays out. A refund returns to the NFT's address.
 
 The contract holds no user balances. Only the current owner can request a signature for a card; the relayer can't do it alone.
 
@@ -95,6 +103,7 @@ cd apps/web
 node e2e/flow.mjs <screenshot-dir>    # two users: buy, open, hand over, sell back, withdraw
 node e2e/anychain.mjs <screenshot-dir> # pay from Base Sepolia, then cash out to NEAR and Base
 node e2e/tamper.mjs <screenshot-dir>  # a compromised relayer against the real app
+node e2e/keeper.mjs <screenshot-dir>  # the Keeper: its attacks refused on-chain, then a sale for the owner (relayer needs KEEPER_ACCOUNT)
 node e2e/signin.mjs <screenshot-dir>  # wallet sign-in through Privy's real service, and sign-out
 node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 ```
@@ -103,13 +112,13 @@ node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 
 | Path | What it is |
 | --- | --- |
-| `contracts/mintent` | NEAR contract (Rust): NEP-171, signing policy, transfer locks |
+| `contracts/mintent` | NEAR contract (Rust): NEP-171, signing policy, transfer locks, Keeper permissions |
 | `packages/checkout` | NEAR Intents 1Click checkout, with mainnet, Tidepool and mock backends |
 | `packages/shared` | Collector Crypt client, Solana derivation and transaction helpers |
-| `services/relayer` | Order pipeline, sell-back and withdrawal, reconciliation, HTTP API |
+| `services/relayer` | Order pipeline, sell-back and withdrawal, cash-out, the Keeper, reconciliation, HTTP API |
 | `apps/web` | React and Vite web app |
 | `scripts` | `demo:testnet`, `verify:pull` and earlier feasibility spikes |
-| `deploy` | Dockerfiles and Railway config for hosting ([guide](docs/DEPLOY.md)) |
+| `deploy` | Dockerfiles for hosting on Railway ([guide](docs/DEPLOY.md)) |
 | `docs` | [Evidence](docs/EVIDENCE.md), [threat model](docs/THREAT-MODEL.md), [decisions](docs/DECISIONS.md), [plan](docs/PLAN.md) |
 
 ## Limits
@@ -123,6 +132,7 @@ node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 - **Sell-back timing on mainnet is unconfirmed.** Collector Crypt's docs say 72 hours, devnet offered 30 days, and 8 of 8 recent mainnet pulls were not available when checked. Those cards may already have been sold.
 - **Redeeming a physical card is untested.** The path is to withdraw the card to your own Solana wallet, then redeem on Collector Crypt's site like any holder.
 - **Trust assumptions.** The relayer controls the treasury's signatures and can write wrong records to the contract. It can't act on a card by itself, and the app checks each message it prepares before signing. `verify:pull` reads the chains directly, so false records can be caught. The check's own limits, including BTC cash-outs and a replaced website, are in the threat model.
+- **The Keeper's decision is a rule, not a model.** It sells while the offer meets your minimum. The safety comes from the contract, not from the agent being clever. It has run on testnet only.
 - **After 24 hours of failed retries, a stuck paid order needs a person.** There's no automated refund.
 
 ## Disclosures

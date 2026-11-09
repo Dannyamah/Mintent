@@ -6,6 +6,7 @@ import { addressFor, AssetPicker, chainLabel, rankAssets } from "./Checkout";
 import type { LoginWallet } from "./privy";
 import { api, insured, nearAcct, rarityOf, short, solanaAddr, solanaTx, statusLabel, timeLeft, units, usd, type Card, type Health, type Op, type PayAsset } from "./api";
 import { CopyButton, EASE, RarityBadge, Skeleton, Tilt, useNow, useToast } from "./ui";
+import { KeeperPanel } from "./KeeperPanel";
 import { exitFee, sellbackPrice } from "./verifyMessage";
 import { refusal, type SigningIntent, type Wallet as WalletT } from "./wallet";
 
@@ -353,6 +354,7 @@ export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: st
             )}
           </AnimatePresence>
 
+          {isOwner && s === "Opened" && card.heldByToken && health.keeper && !action && !busy && <KeeperPanel card={card} wallet={wallet!} agent={health.keeper} onChange={load} />}
           <Proof card={card} health={health} />
         </div>
       </div>

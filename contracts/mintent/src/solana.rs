@@ -202,3 +202,61 @@ pub fn classify_card_message(msg: &Message, allowed_nonces: &[Pubkey], allowed_m
     }
     Ok(out)
 }
+
+/// What a keeper may sign: a Collector Crypt sell-back of exactly this card, paid into the card's own address, and nothing else.
+/// Returns the price. The contract doesn't know the card's Solana address, and doesn't need to: only the asset's owner can
+/// authorise its Core transfer, so the transfer's authority is the card's address whenever the transaction can land. Everything
+/// else must point at that same account. Collector Crypt's program then rejects a changed price, quote or destination.
+pub fn check_keeper_sellback(msg: &Message, asset: &Pubkey, allowed_mints: &[Pubkey]) -> Result<u64, &'static str> {
+    let (system, budget, ed25519, ata, core, buyback) = (
+        decode(SYSTEM_PROGRAM),
+        decode(COMPUTE_BUDGET_PROGRAM),
+        decode(ED25519_PROGRAM),
+        decode(ATA_PROGRAM),
+        decode(MPL_CORE_PROGRAM),
+        decode(CC_BUYBACK_PROGRAM),
+    );
+    let (mut create, mut transfer, mut pay) = (None, None, None);
+    for (i, ix) in msg.instructions.iter().enumerate() {
+        let program = msg.keys[ix.program_index];
+        let slot = if program == budget || program == ed25519 || (program == system && i == 0) {
+            continue;
+        } else if program == ata {
+            &mut create
+        } else if program == core {
+            &mut transfer
+        } else if program == buyback {
+            &mut pay
+        } else {
+            return Err("a keeper may only sign a sell-back");
+        };
+        if slot.replace(ix).is_some() {
+            return Err("a keeper's sell-back has one step of each kind");
+        }
+    }
+    let pay = pay.ok_or("a keeper may only sign a sell-back to Collector Crypt")?;
+    let transfer = transfer.ok_or("no card transfer")?;
+    let create = create.ok_or("no token account for the proceeds")?;
+    let key = |ix: &Instruction, n: usize| ix.accounts.get(n).map(|a| msg.keys[*a]).ok_or("instruction is missing accounts");
+
+    if key(transfer, 0)? != *asset || key(pay, 2)? != *asset {
+        return Err("it sells a different card");
+    }
+    let holder = key(transfer, 3)?;
+    if key(pay, 1)? != holder {
+        return Err("the seller isn't the card's holder");
+    }
+    if key(pay, 3)? != key(transfer, 4)? {
+        return Err("the card and the payment name different destinations");
+    }
+    if key(create, 2)? != holder || key(pay, 5)? != key(create, 1)? {
+        return Err("the money doesn't go to the card's own address");
+    }
+    let mint = key(create, 3)?;
+    if !allowed_mints.contains(&mint) || key(pay, 6)? != mint {
+        return Err("it pays in a coin that isn't allowed");
+    }
+    let price = pay.data.get(8..16).ok_or("the payment has no price")?;
+    Ok(u64::from_le_bytes(price.try_into().map_err(|_| "the payment has no price")?))
+}
+

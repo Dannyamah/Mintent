@@ -395,6 +395,14 @@ input, select { font: inherit; color: var(--ink); }
 .card-page__value small { margin-left: 4px; color: var(--muted); font-size: 14px; font-weight: 400; }
 .signing { display: flex; align-items: center; gap: 14px; padding: 15px 18px; border-radius: 16px; background: rgba(124, 245, 196, .06); border: 1px solid rgba(124, 245, 196, .26); }
 .signing strong { font-weight: 500; }
+.keeper { display: flex; flex-direction: column; gap: 12px; }
+.keeper h2 { display: flex; align-items: center; gap: 8px; margin: 0; font: 400 26px/1.1 var(--serif); }
+.keeper[data-keeper="on"] { border-color: rgba(124, 245, 196, .35); box-shadow: var(--glow); }
+.keeper__form { display: grid; grid-template-columns: 1fr 140px; gap: 12px; }
+.keeper__form select { width: 100%; min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink); font: inherit; }
+.keeper__limits { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.keeper__limits svg { flex: none; margin-top: 2px; color: var(--accent); }
+@media (max-width: 560px) { .keeper__form { grid-template-columns: 1fr; } }
 .offer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .offer__amount { font: 400 38px/1.1 var(--serif); }
 .offer__amount small { color: var(--muted); font: 400 14px var(--sans); }

@@ -29,11 +29,11 @@ export class CardOps {
     throw new Error("all signing slots are busy; try again in a moment");
   }
 
-  private async create(kind: OpKind, tokenId: string, actor: string, instructions: TransactionInstruction[], detail: Record<string, unknown>, expectMovesCard: boolean): Promise<Op> {
+  private async create(kind: OpKind, tokenId: string, actor: string, instructions: TransactionInstruction[], detail: Record<string, unknown>, expectMovesCard: boolean, signer = actor): Promise<Op> {
     const { chain, contract, db, sponsor, log } = this.d;
     const nonceIndex = this.reserveNonce();
-    // Whoever owns a token can always act on it, even someone given the NFT who has never held NEAR.
-    await sponsor.ensureFunded(actor).catch((e) => log(`sponsor failed for ${actor}: ${e}`));
+    // Whoever signs on NEAR needs gas, including someone given the NFT who has never held NEAR.
+    await sponsor.ensureFunded(signer).catch((e) => log(`sponsor failed for ${signer}: ${e}`));
     const tx = await chain.buildNonceTx(nonceIndex, instructions);
     const hex = Buffer.from(tx.message.serialize()).toString("hex");
     // Dry-run the contract's policy now, so the owner is never asked to sign something it will refuse.
@@ -43,8 +43,26 @@ export class CardOps {
   }
 
   async prepareSellback(tokenId: string, actor: string): Promise<Op> {
-    const { chain, cc } = this.d;
     const view = await this.assertOwner(tokenId, actor);
+    const { instructions, detail } = await this.sellbackParts(tokenId, view);
+    return this.create("sellback", tokenId, actor, instructions, detail, true);
+  }
+
+  /**
+   * The same sell-back, asked for by the owner's Keeper. The op belongs to the owner, so it shows in their activity, and
+   * finalize re-checks the permission before co-signing.
+   */
+  async prepareKeeperSellback(tokenId: string, agent: string): Promise<Op> {
+    const view = await this.d.contract.getCard(tokenId);
+    if (!view) throw new Error(`unknown token ${tokenId}`);
+    if (view.keeper?.agent !== agent || Date.now() >= Number(view.keeper.expires_ms)) throw new Error(`${agent} has no live permission for token ${tokenId}`);
+    const { instructions, detail } = await this.sellbackParts(tokenId, view);
+    if (BigInt(detail.price) < BigInt(view.keeper.min_price)) throw new Error(`offer ${detail.price} is below the owner's minimum ${view.keeper.min_price}`);
+    return this.create("sellback", tokenId, view.owner_id, instructions, { ...detail, keeper: agent }, true, agent);
+  }
+
+  private async sellbackParts(tokenId: string, view: NonNullable<Awaited<ReturnType<Deps["contract"]["getCard"]>>>) {
+    const { chain, cc } = this.d;
     if (view.record.status !== "Opened" || !view.record.card_mint) throw new Error(`token ${tokenId} holds no card (${view.record.status})`);
     const card = new PublicKey(await chain.cardAddress(tokenId));
     const asset = new PublicKey(view.record.card_mint);
@@ -61,7 +79,7 @@ export class CardOps {
       coreTransferIx(asset, collection, chain.treasury, card, new PublicKey(q.destinationOwner)),
       authorizeAndPayIx(q, card, asset, await ata(card, mint, tokenProgram)),
     ];
-    return this.create("sellback", tokenId, actor, instructions, { price: q.price, mint: q.paymentMint, expiresAt: q.expiresAt }, true);
+    return { instructions, detail: { price: String(q.price), mint: q.paymentMint, expiresAt: q.expiresAt } };
   }
 
   async prepareWithdrawCard(tokenId: string, actor: string, destination: string): Promise<Op> {
@@ -181,6 +199,11 @@ export class CardOps {
     if (view?.owner_id !== op.actor) {
       db.updateOp(opId, { state: "failed", error: "owner changed" });
       throw new Error("token owner changed; refusing to co-sign");
+    }
+    const keeper = (JSON.parse(op.detail) as { keeper?: string }).keeper;
+    if (keeper && (view.keeper?.agent !== keeper || Date.now() >= Number(view.keeper.expires_ms))) {
+      db.updateOp(opId, { state: "failed", error: "keeper permission withdrawn" });
+      throw new Error("the owner withdrew the keeper's permission; refusing to co-sign");
     }
     const treasurySig = await contract.signForTreasury(message);
     const tx = new VersionedTransaction(VersionedMessage.deserialize(message));

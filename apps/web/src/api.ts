@@ -8,7 +8,7 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
   return data as T;
 }
 
-export interface Health { network: "testnet" | "mainnet"; contract: string; treasury: string; mpcContract: string; serviceFeeBps: number; defaultPack: string; nearRpcs: string[]; testPay: boolean; testPayAsset: string | null }
+export interface Health { network: "testnet" | "mainnet"; contract: string; treasury: string; mpcContract: string; serviceFeeBps: number; defaultPack: string; nearRpcs: string[]; testPay: boolean; testPayAsset: string | null; keeper: string | null }
 export interface Pull { mint: string; image: string; thumb: string; grader: string | null; grade: string | null; insuredValue: number; url: string | null; packType: string | null; rarityTier: number | null; at: string | null }
 export interface Pack { code: string; name: string; price: number; odds: Record<string, number>; expectedValue: number | null; buybackPct: number }
 export interface PackDetail extends Pack { recent: Pull[]; recentIsFromThisPack: boolean }
@@ -21,10 +21,11 @@ export interface Card {
   record: { status: CardStatus; pack_type: string; memo: string | null; card_mint: string | null; rarity: string | null; insured_value_usd_cents: string | null; release_reason: string | null };
   solanaAddress: string; holder: string | null; heldByToken: boolean; proceedsUnits: string; verifyUrl: string | null; contractId: string; mpcContract: string;
   name: string | null; image: string | null; thumb: string | null; offer: { amountUnits: number; expiresAt: string | null } | null; mintedAt: number | null;
+  keeper?: { agent: string; min_price: string; expires_ms: string } | null;
 }
 export interface Op { id: string; kind: string; message_hex: string; detail: string; state: string; tx_sig: string | null; expires_at: number; swap_status?: string | null; swap_amount_out?: string | null; swap_dest_tx?: string | null }
 export interface ActiveOrder { orderId: string; state: string; status: string | null; packType: string; priceUnits: string; createdAt: number; lastError: string | null }
-export interface ActivityItem { kind: string; at: number; state: string; tokenId: string | null; name?: string | null; rarity?: string | null; packPriceUnits?: string; detail?: Record<string, unknown>; swapStatus?: string | null; swapAmountOut?: string | null; tx: string | null; orderId?: string }
+export interface ActivityItem { kind: string; at: number; state: string; tokenId: string | null; name?: string | null; rarity?: string | null; packPriceUnits?: string; detail?: Record<string, unknown>; swapStatus?: string | null; byKeeper?: boolean; swapAmountOut?: string | null; tx: string | null; orderId?: string }
 export interface Dashboard { account: string; cards: Card[]; active: ActiveOrder[]; activity: ActivityItem[] }
 
 export const api = {

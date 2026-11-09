@@ -21,6 +21,9 @@ export interface Wallet {
   /** Ask the contract for a signature over a Solana message, if it matches the intent. Locks the NFT for 5 minutes. Slow: 12 to 60 seconds. */
   signForCard(tokenId: string, messageHex: string, intent: SigningIntent): Promise<string>;
   transfer(tokenId: string, receiver: string): Promise<void>;
+  /** Let `agent` sell this card back for at least `minPriceUnits` USDC base units until `expiresMs`. */
+  grantKeeper(tokenId: string, agent: string, minPriceUnits: bigint, expiresMs: number): Promise<void>;
+  revokeKeeper(tokenId: string): Promise<void>;
 }
 
 // Failover wraps errors, which stops near-api-js recovering from a stale nonce and hides the real reason from the user.
@@ -179,7 +182,13 @@ function walletFrom(accountId: string, signer: Signer, health: Health): Wallet {
       return res.signature.map((b) => b.toString(16).padStart(2, "0")).join("");
     },
     async transfer(tokenId, receiver) {
-      await account.callFunction({ contractId: health.contract, methodName: "nft_transfer", args: { receiver_id: receiver, token_id: tokenId }, deposit: 1n, gas: 30n * TGAS });
+      await account.callFunction({ contractId: contract, methodName: "nft_transfer", args: { receiver_id: receiver, token_id: tokenId }, deposit: 1n, gas: 30n * TGAS });
+    },
+    async grantKeeper(tokenId, agent, minPriceUnits, expiresMs) {
+      await account.callFunction({ contractId: contract, methodName: "grant_keeper", args: { token_id: tokenId, agent_id: agent, min_price: minPriceUnits.toString(), expires_ms: String(Math.floor(expiresMs)) }, deposit: 1n, gas: 30n * TGAS });
+    },
+    async revokeKeeper(tokenId) {
+      await account.callFunction({ contractId: contract, methodName: "revoke_keeper", args: { token_id: tokenId }, deposit: 1n, gas: 30n * TGAS });
     },
   };
 }

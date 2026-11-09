@@ -129,7 +129,23 @@ Ben withdrew token 19's $19.55 sell-back: $19.30 reached his address, and the tr
 
 The two-user flow ran against the hosted testnet site, https://web-testnet-production-2eb9.up.railway.app. Ana bought token 22 ($28.47). Ben received the NFT, sold it back for $23.80 and withdrew it. 18 of 19 checks passed. The miss was timing: the pack took 4.8 s to become openable, against a 4 s target, probably because the hosted relayer is further from the RPCs it reads. Wallet sign-in through Privy's real service also works on the hosted site. The hosted mainnet site, https://web-mainnet-production-b5e0.up.railway.app, shows the real-money banner and real pulls, and offers no test account. That check created no orders.
 
+## The Keeper, live on testnet, 9 Nov
+
+`apps/web/e2e/keeper.mjs` ran through the real app on real test networks: 10 checks in 4.9 minutes. The owner bought token 23, a $33 card with a $28.05 sell-back offer, and turned the Keeper on with a $33.05 minimum, $5 above the offer. The Keeper then tried to break its permission with its real key, `keeper.mintent-dev-mw21w9ki.testnet`. The contract refused each attempt on-chain:
+
+| The Keeper tried to | Contract's answer | Transaction |
+| --- | --- | --- |
+| Withdraw the card to its own address | "a keeper may only sign a sell-back to Collector Crypt" | [WhGkVWc4…](https://testnet.nearblocks.io/txns/WhGkVWc4J77iTC9JdoAmyfYkEdrUZEtMjdshsaoT8MS) |
+| Sell back below the owner's minimum | "the price is below the owner's minimum" | [G2BBMnbX…](https://testnet.nearblocks.io/txns/G2BBMnbX6F2JuUnN5PzXzvYBA1wUNB9uPm5vv5ASLCFU) |
+| Sell back with the money paid to itself | "the money doesn't go to the card's own address" | [Wg5fE2rr…](https://testnet.nearblocks.io/txns/Wg5fE2rrFC8guFbvAP4JsJ7WFVErhpjjCE6VELxVDta) |
+
+After those attempts, the card was still at the NFT's address and the Keeper hadn't sold. The owner then lowered the minimum to the offer, and the Keeper sold the card back for $28.05 into the NFT's own address ([Solana tx](https://explorer.solana.com/tx/Va3k3rnEHyv2UNMaPsmwwdnzQFspGgNyA3H5cYcGNqUAikTDxDcxvzNZdnb6qP53RY36kXyAvnweVAhDZjBXwNZ?cluster=devnet)). The permission ended with the sale, and the owner's activity says "Your Keeper sold back for $28.05". `pnpm verify:pull mintent-con-mw7mmwr5.testnet 23` passes from public data.
+
+The contract has 19 Keeper unit tests among its 65, and the relayer has 5 among its 70.
+
 ## What has not been shown
+
+- **The Keeper on mainnet.** The mainnet contract hasn't been upgraded yet, and the hosted relayers don't run a Keeper until their variables include one.
 
 - **No mainnet run.** The contract is deployed at `mintent.xinju.near`, but holds no tokens yet. One real, unsigned $25 mainnet purchase transaction passed `assertSafePackTx` on 9 Nov (`scripts/src/mainnet-pack-check.ts`), with nothing signed or sent. No purchase, sell-back or cash-out has run on mainnet.
 - **Payment on testnet is not spent on the pack.** Tidepool's test USDC isn't the token Collector Crypt's devnet charges, so the treasury pays from pre-stocked USDC-Dev. On mainnet, both are real USDC.

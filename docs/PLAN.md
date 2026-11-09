@@ -22,7 +22,7 @@ Last updated: **9 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 | Contract hardening | **Done 8 Nov.** Signing policy and transfer locks after the pre-sign attack was proven (D-015, `THREAT-MODEL.md`). 46 unit tests and a sandbox run. |
 | `packages/checkout`, `services/relayer` | **Done 8 Nov.** 7 + 31 tests. HTTP API smoke-tested. |
 | `pnpm demo:testnet` | **Passes from nothing: 23/23 checks in 6.3 min on real networks** (`EVIDENCE.md`). |
-| Web app | **Working on testnet, 8 Nov:** rebuilt with motion and depth (D-025): gallery home page, pack shop and detail pages, checkout, tap-to-tear reveal, dashboard, card page with proof panel, transfer, sell back, withdraw, security page. Two-user browser test passes on real networks, 18 of 18 (`apps/web/e2e/flow.mjs`). Privy email sign-in works on testnet with live signing, 9 Nov (D-026). Email or wallet sign-in, any-chain payment and cash-out to any chain work on test networks (D-028). Stuck paid orders recover by themselves (D-027). The app checks each message before signing, and payment can be proven without a reported hash (D-029). Open for mainnet prep: check real sell-back availability. |
+| Web app | **Working on testnet, 8 Nov:** rebuilt with motion and depth (D-025): gallery home page, pack shop and detail pages, checkout, tap-to-tear reveal, dashboard, card page with proof panel, transfer, sell back, withdraw, security page. Two-user browser test passes on real networks, 18 of 18 (`apps/web/e2e/flow.mjs`). Privy email sign-in works on testnet with live signing, 9 Nov (D-026). Email or wallet sign-in, any-chain payment and cash-out to any chain work on test networks (D-028). Stuck paid orders recover by themselves (D-027). The app checks each message before signing, and payment can be proven without a reported hash (D-029). The Keeper, an agent limited by the contract, works live on testnet (D-033). Open for mainnet prep: check real sell-back availability. |
 | Mainnet | **Contract deployed and set up 9 Nov at `mintent.xinju.near` (D-030).** First mainnet signatures worked. Runs beside testnet. No purchases yet. |
 | Blocker 2 (redemption) | **Decided (D-022):** withdraw the card to the owner's own Solana wallet, then redeem on Collector Crypt's site. No partnership needed. |
 | Blocker 4 (pricing) | **Verified.** |
@@ -100,7 +100,7 @@ Own inventory, own odds, a pricing engine, Magic Eden/Tensor connectors, OutLaye
 0. **Franchise art on the home page.** The gallery wall shows real cards, so franchise art and names printed on slabs are visible, which sits close to your "no franchise branding in our own UI" rule. It's the cards' own media, loaded live, with nothing shipped or named by us. Recommendation: keep it for the hackathon and get legal advice before any public launch.
 
 1. ~~Confirm the design above.~~ Confirmed 9 Nov (D-028).
-2. Tracks: **`nfts` + `realworld` + `open`** is my recommendation (`realworld` is justified by the reusable checkout). `games` is not recommended.
+2. ~~Tracks.~~ Decided 9 Nov: `nfts`, `security`, `agents`, `open` (D-033).
 3. Mainnet budget (you asked for $30; about $40 estimated, D-029) and the source chain (SOL recommended, D-021).
 4. Mainnet payout account, Privy app id, 1Click partner key application, a paid RPC endpoint.
 5. Neutral pack names in our UI.

@@ -5,7 +5,7 @@ import { PublicKey, TransactionInstruction, TransactionMessage, VersionedMessage
 import bs58 from "bs58";
 import { looksLikeAddress, MockBackend, quoteErrorForCustomer } from "@mintent/checkout";
 import { afterExitFee, ata, COMPUTE_BUDGET, CONFIGS, exitFee, loadConfig, MEMO_PROGRAM, MPL_CORE, realRpcError, TOKEN_PROGRAM, transferCheckedIx, withRealErrors, type CardView } from "@mintent/shared";
-import { CardOps, Db, isSolanaSignature, OrderPipeline, reconcile, sponsorAmounts, type Chain, type ContractApi, type Deps } from "../src/index.ts";
+import { CardOps, createKeeper, Db, isSolanaSignature, keeperShouldSell, OrderPipeline, reconcile, sponsorAmounts, type Chain, type ContractApi, type Deps } from "../src/index.ts";
 
 function keypair() {
   const { privateKey } = generateKeyPairSync("ed25519");
@@ -651,6 +651,87 @@ test("only standard graded-card packs can be ordered", async () => {
   for (const code of ["sealed_80", "epokewatch_1500", "comic_250", "pokemon_25x", "", "pokemon_"]) await assert.rejects(p.createOrder({ buyer: "alice", packType: code, originAsset: "mock:usdc", refundTo: "alice" }), { status: 400 }, code);
   assert.equal(w.deps.db.orders().length, 0);
   assert.ok((await p.createOrder({ buyer: "alice", packType: "pokemon_100", originAsset: "mock:usdc", refundTo: "alice" })).order);
+});
+
+// ---------- keeper ----------
+
+const FUTURE = () => String(Date.now() + 3_600_000);
+const ccQuote = (price: string) => ({
+  memo: "m:buyback",
+  refundAmount: 0,
+  quote: {
+    ed25519Instruction: { programId: "Ed25519SigVerify111111111111111111111111111", data: Buffer.alloc(144).toString("base64") },
+    quoteMarker: keypair().address, quoteId: "1", price, expiresAt: Math.floor(Date.now() / 1000) + 600, paymentMint: USDC,
+    destinationOwner: keypair().address, treasury: keypair().address, rentVault: keypair().address,
+    ccProgram: "CcBuyM7sDhedBGLZxivBvgZVdqzrQAG66KYHgnTTEpLF", memoProgram: "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", tokenProgram: TOKEN_PROGRAM.toBase58(),
+    standard: "core", computeUnitLimit: 250_000, memo: "m:buyback",
+  },
+});
+
+/** A delivered card with a Keeper permission, and a Collector Crypt offer of `offer` against a minimum of `floor`. */
+async function keptCard(offer: number, floor = "15000000") {
+  const { p, id } = await paidOrder(w);
+  assert.equal((await runUntilSettled(p, id)).state, "complete");
+  w.card.keeper = { agent: "keeper", min_price: floor, expires_ms: FUTURE() };
+  w.deps.cc.buybackAvailable = async () => ({ available: true, amountUnits: offer, expiresAt: null });
+  w.deps.cc.buybackQuote = async () => ccQuote(String(offer)) as never;
+  w.deps.contract.checkCardMessage = async () => ({ moves_card: true, uses_durable_nonce: true });
+  const signed: string[] = [];
+  const contract = { ...w.deps.contract, keeperSign: async (_k: unknown, tokenId: string, m: Uint8Array) => { signed.push(tokenId); return cardKp.sign(m); } };
+  w.deps.contract = contract as never;
+  const ops = new CardOps(w.deps);
+  return { ops, signed, tick: createKeeper(w.deps as never, ops, { accountId: "keeper" } as never) };
+}
+
+test("the Keeper's rule: sell only while the offer meets the minimum and the permission lasts", () => {
+  const grant = { min_price: "15000000", expires_ms: String(Date.now() + 1000) };
+  assert.equal(keeperShouldSell(grant, { available: true, amountUnits: 15_000_000 }, Date.now()).sell, true);
+  assert.equal(keeperShouldSell(grant, { available: true, amountUnits: 14_999_999 }, Date.now()).sell, false);
+  assert.equal(keeperShouldSell(grant, { available: false, amountUnits: 99_000_000 }, Date.now()).sell, false);
+  assert.equal(keeperShouldSell(grant, { available: true, amountUnits: 99_000_000 }, Date.now() + 2000).sell, false);
+  assert.equal(keeperShouldSell(null, { available: true, amountUnits: 99_000_000 }, Date.now()).sell, false);
+});
+
+test("the Keeper sells for the owner: the sale is the owner's, and the Keeper pays its own gas", async () => {
+  const { tick, signed } = await keptCard(15_300_000);
+  const [decision] = await tick();
+  assert.equal(decision.action, "sold");
+  assert.deepEqual(signed, ["0"]);
+  assert.deepEqual(w.releases, ["bought_back"]);
+  const op = w.deps.db.opsByActor("alice")[0];
+  assert.equal(op.kind, "sellback");
+  assert.equal(JSON.parse(op.detail).keeper, "keeper");
+  assert.ok(w.sponsored.includes("keeper"));
+});
+
+test("the Keeper waits while the offer is below the owner's minimum", async () => {
+  const { tick, signed } = await keptCard(14_000_000);
+  const [decision] = await tick();
+  assert.equal(decision.action, "waiting");
+  assert.deepEqual(signed, []);
+  assert.equal(w.sent.length, 1); // only the pack purchase
+});
+
+test("the relayer won't co-sign if the owner withdraws the permission, or sells the NFT, before the sale lands", async () => {
+  for (const change of [(c: typeof w.card) => { c.keeper = null; }, (c: typeof w.card) => { c.owner_id = "bob"; }]) {
+    w = world();
+    const { tick } = await keptCard(15_300_000);
+    const sign = w.deps.contract.keeperSign!;
+    w.deps.contract.keeperSign = async (...a) => { change(w.card); return sign(...a); };
+    const [decision] = await tick();
+    assert.equal(decision.action, "waiting");
+    assert.deepEqual(w.releases, []);
+    assert.equal(w.sent.length, 1);
+  }
+});
+
+test("the Keeper can't prepare a sale without a live permission of its own", async () => {
+  const { ops } = await keptCard(15_300_000);
+  await assert.rejects(ops.prepareKeeperSellback("0", "someone-else"), /no live permission/);
+  w.card.keeper = { agent: "keeper", min_price: "15000000", expires_ms: String(Date.now() - 1) };
+  await assert.rejects(ops.prepareKeeperSellback("0", "keeper"), /no live permission/);
+  w.card.keeper = { agent: "keeper", min_price: "16000000", expires_ms: FUTURE() };
+  await assert.rejects(ops.prepareKeeperSellback("0", "keeper"), /below the owner's minimum/);
 });
 
 test("address formats", () => {
