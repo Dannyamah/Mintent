@@ -21,7 +21,12 @@ const deployed = await account.deployContract(wasm);
 console.log("upgraded:", deployed.transaction.hash);
 
 const after = await view<{ next_token_id: number; owner_id: string }>("get_config");
-const state = await provider.query({ request_type: "view_account", finality: "final", account_id: contractId } as never) as unknown as { code_hash: string };
+// RPCs can answer from a block or two before the upgrade, so wait for the new code to show.
+let state = { code_hash: "" };
+for (let i = 0; i < 10 && state.code_hash !== expectedHash; i++) {
+  if (i) await new Promise((r) => setTimeout(r, 2000));
+  state = (await provider.query({ request_type: "view_account", finality: "final", account_id: contractId } as never)) as unknown as { code_hash: string };
+}
 const sample = before.next_token_id > 0 ? await view<{ token_id: string; keeper: unknown } | null>("get_card", { token_id: "0" }) : null;
 console.log({ codeHash: state.code_hash, matches: state.code_hash === expectedHash, tokens: after.next_token_id, owner: after.owner_id, stateKept: after.next_token_id === before.next_token_id && after.owner_id === before.owner_id, token0Reads: sample ? "keeper" in sample : "no tokens" });
 process.exit(state.code_hash === expectedHash && after.next_token_id === before.next_token_id ? 0 : 1);

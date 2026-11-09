@@ -145,7 +145,7 @@ The contract has 19 Keeper unit tests among its 65, and the relayer has 5 among 
 
 ## What has not been shown
 
-- **The Keeper on mainnet.** The mainnet contract hasn't been upgraded yet, and the hosted relayers don't run a Keeper until their variables include one.
+- **The Keeper on mainnet.** The mainnet contract has it (upgraded 9 Nov), and `keeper.xinju.near` exists, but no mainnet sale has run.
 
 - **No mainnet run.** The contract is deployed at `mintent.xinju.near`, but holds no tokens yet. One real, unsigned $25 mainnet purchase transaction passed `assertSafePackTx` on 9 Nov (`scripts/src/mainnet-pack-check.ts`), with nothing signed or sent. No purchase, sell-back or cash-out has run on mainnet.
 - **Payment on testnet is not spent on the pack.** Tidepool's test USDC isn't the token Collector Crypt's devnet charges, so the treasury pays from pre-stocked USDC-Dev. On mainnet, both are real USDC.
