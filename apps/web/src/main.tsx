@@ -52,7 +52,7 @@ function SignInSheet({ health, privy, onClose, onEmail, onCreate }: { health: He
           </>
         ) : !isTest && (
           <>
-            <p className="lede">Email and passkey sign-in isn't switched on yet.</p>
+            <p className="lede">Email sign-in isn't switched on yet.</p>
             <p className="hint">Mintent needs its sign-in provider configured before it can open on mainnet.</p>
           </>
         )}

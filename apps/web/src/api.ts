@@ -35,6 +35,7 @@ export const api = {
   payAssets: () => call<PayAsset[]>("/pay-assets"),
   createOrder: (b: { buyer: string; packType: string; originAsset: string; refundTo: string; depositType?: string; refundType?: string }) => call<OrderCreated>("/orders", b),
   order: (id: string) => call<Order>(`/orders/${encodeURIComponent(id)}`),
+  retryOrder: (id: string) => call<{ ok: boolean; state: string }>(`/orders/${encodeURIComponent(id)}/retry`, {}),
   testPay: (id: string) => call<{ ok: boolean }>(`/orders/${encodeURIComponent(id)}/test-pay`, {}),
   dashboard: (account: string) => call<Dashboard>(`/owners/${encodeURIComponent(account)}/dashboard`),
   card: (id: string) => call<Card>(`/cards/${id}`),

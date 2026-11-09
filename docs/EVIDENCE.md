@@ -66,12 +66,20 @@ On the unprotected contract, `app2.mintent-dev-mw21w9ki.testnet`, the seller sig
 
 `apps/web/e2e/signer.test.mts` checks offline that the signer's signature is identical to a local key's for the same transaction.
 
+## A stuck paid order recovered by itself, 9 Nov
+
+On 8 Nov, token 8's order stalled because the test treasury had run out, and it stayed stuck with no way to retry. After the recovery code (D-027) was deployed on 9 Nov, the relayer restarted that order at the right step without any manual action, bought exactly one pack and delivered the card. `pnpm verify:pull mintent-con-mw7mmwr5.testnet 8` passes: the card is at the token's address and the VRF proof is valid.
+
+`services/relayer/test/relayer.test.ts` covers recovery with a mock of each failure: no second payment, no mint without settlement proof, and refunded orders staying final. `apps/web/e2e/stuck.mjs` checks what the customer sees, against stand-in relayer answers.
+
+A full two-user run (buy, sell back, withdraw) used 0.0015 devnet SOL from the treasury, measured on 9 Nov. Treat that as a rough guide for mainnet, where fees and accounts may differ.
+
 ## What has not been shown
 
 - **No mainnet run.** Collector Crypt's mainnet purchase transaction hasn't been inspected by `assertSafePackTx` yet, and a mainnet sell-back hasn't been built.
 - **Payment on testnet is not spent on the pack.** Tidepool's test USDC isn't the token Collector Crypt's devnet charges, so the treasury pays from pre-stocked USDC-Dev. On mainnet, both are real USDC.
 - **Sell-back timing on mainnet.** Devnet offered a 30-day window, Collector Crypt's docs say 72 hours, and 8 of 8 recent mainnet pulls returned `available: false` in a read-only check on 8 Nov. The cause is unknown; those cards may already have been sold or withdrawn.
 - **Paying from other chains** has been quoted, not executed. The test payment came from NEAR USDC.
-- **Privy on mainnet, and passkey.** Privy has only run on testnet with email. Its key export window opens, but the screen showing the key itself hasn't been checked.
+- **Privy on mainnet.** Privy has only run on testnet. Its key export window opens, but the screen showing the key itself hasn't been checked.
 - **A real payment through the app** from another chain. On testnet the app's "Pay with test USDC" button pays from a funded account.
 - **Redemption of a physical card** is untested. The path is to withdraw the card to your own Solana wallet, then redeem on Collector Crypt's site as any holder can.

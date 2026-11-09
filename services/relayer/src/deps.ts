@@ -18,6 +18,8 @@ export interface Chain {
   blockhashValid(blockhash: string): Promise<boolean>;
   send(tx: VersionedTransaction): Promise<string>;
   tokenBalance(owner: string, mint: string): Promise<bigint>;
+  /** The treasury's SOL, which pays Solana fees and rent. */
+  treasurySol(): Promise<bigint>;
   /** How much `owner`'s balance of `mint` rose in a confirmed transaction, or null if it isn't confirmed. */
   tokenDeltaInTx(sig: string, owner: string, mint: string): Promise<bigint | null>;
   buildNonceTx(nonceIndex: number, instructions: TransactionInstruction[]): Promise<VersionedTransaction>;
@@ -85,6 +87,10 @@ export class SolanaChain implements Chain {
   async assetOwner(mint: string) {
     const { owner, collection } = await readCoreAsset(this.conn, new PublicKey(mint));
     return { owner: owner.toBase58(), collection };
+  }
+
+  async treasurySol(): Promise<bigint> {
+    return BigInt(await this.conn.getBalance(this.treasury));
   }
 
   async signatureStatus(sig: string): Promise<SigStatus> {

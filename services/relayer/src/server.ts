@@ -125,6 +125,10 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
       if (!order) throw Object.assign(new Error("unknown order"), { status: 404 });
       return { ...order, verifyUrl: order.memo ? d.cc.verifyUrl(order.memo) : null };
     }],
+    ["POST", /^\/orders\/([^/]+)\/retry$/, async (m) => {
+      const { state } = pipeline.retry(decodeURIComponent(m[1]));
+      return { ok: true, state };
+    }],
     ["POST", /^\/orders\/([^/]+)\/test-pay$/, async (m) => {
       if (!funder) throw Object.assign(new Error("test payments are not available"), { status: 403 });
       const order = d.db.order(decodeURIComponent(m[1]));

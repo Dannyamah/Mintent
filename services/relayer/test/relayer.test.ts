@@ -55,6 +55,8 @@ interface World {
   minted: Map<string, string>;
   sponsored: string[];
   settledDelta: bigint | null;
+  ccSawPayment: boolean;
+  treasurySol: bigint;
 }
 
 function world(): World {
@@ -76,6 +78,8 @@ function world(): World {
     minted: new Map(),
     sponsored: [],
     settledDelta: 25_250_000n,
+    ccSawPayment: false,
+    treasurySol: 1_000_000_000n,
     deps: null as never,
   };
   const contract: ContractApi = {
@@ -117,6 +121,7 @@ function world(): World {
       return "sent-sig";
     },
     tokenBalance: async () => w.balance,
+    treasurySol: async () => w.treasurySol,
     tokenDeltaInTx: async () => w.settledDelta,
     buildNonceTx: async (_i, ixs) => new VersionedTransaction(new TransactionMessage({ payerKey: TREASURY, recentBlockhash: BLOCKHASH as never, instructions: ixs }).compileToV0Message()),
   };
@@ -130,7 +135,8 @@ function world(): World {
         w.generatePacks++;
         return { memo: `memo-${w.generatePacks}`, transaction: w.packTxFactory() };
       },
-      openPack: async () => ({ nftAddress: MINT, rarity: "Rare", roll: 7, cardName: "Card", deliveryTx: "delivery" }),
+      // Like the real API: a pack only opens once it has been paid for.
+      openPack: async () => (w.sigStatus === "confirmed" || w.ccSawPayment ? { nftAddress: MINT, rarity: "Rare", roll: 7, cardName: "Card", deliveryTx: "delivery" } : null),
       buybackQuote: async () => { throw new Error("not used"); },
       card: async () => ({ insuredValue: "21.69", frontImage: "img" }),
       verifyUrl: (m: string) => m,
@@ -262,6 +268,123 @@ test("a paid order that can't finish goes to needs_attention, not silently nowhe
   assert.equal(o.state, "needs_attention");
   assert.match(o.last_error ?? "", /treasury holds/);
   assert.equal(w.treasurySigns, 0);
+});
+
+test("no new orders when the treasury can't pay Solana fees, so nobody pays into a stall", async () => {
+  w.treasurySol = 1_200_000n; // the real low balance that was found on devnet
+  await assert.rejects(new OrderPipeline(w.deps).createOrder({ buyer: "alice", packType: "pokemon_25", originAsset: "mock:usdc", refundTo: "alice" }), { status: 503 });
+  assert.equal(w.deps.db.orders().length, 0);
+  w.treasurySol = 5_000_000n;
+  assert.ok((await new OrderPipeline(w.deps).createOrder({ buyer: "alice", packType: "pokemon_25", originAsset: "mock:usdc", refundTo: "alice" })).order);
+});
+
+// Run an order until it's stuck, then run the clock past the retry interval.
+async function stuck(p: OrderPipeline, id: string) {
+  let o = await p.advance(id);
+  for (let i = 0; i < 40 && o.state !== "needs_attention"; i++) o = await p.advance(id);
+  assert.equal(o.state, "needs_attention");
+  return o;
+}
+const MINUTE = 60_000;
+
+test("a stuck order recovers by itself once the cause is fixed, and buys exactly one pack", async () => {
+  w.balance = 0n;
+  const { p, id } = await paidOrder(w);
+  const o = await stuck(p, id);
+  assert.equal(o.token_id, "0");
+
+  p.recoverStuck(Date.now() + MINUTE); // too soon
+  assert.equal(w.deps.db.order(id)!.state, "needs_attention");
+
+  w.balance = 1_000_000_000n;
+  p.recoverStuck(Date.now() + 6 * MINUTE);
+  assert.equal(w.deps.db.order(id)!.state, "minted");
+  assert.equal((await runUntilSettled(p, id)).state, "complete");
+  assert.equal(w.generatePacks, 1);
+  assert.equal(w.treasurySigns, 1);
+  assert.equal(w.mints, 1);
+});
+
+test("a retry after the pack was paid for only opens it, and never pays again", async () => {
+  const { p, id } = await paidOrder(w);
+  w.deps.cc.openPack = async () => { throw new Error("openPack 500: down"); };
+  await stuck(p, id);
+  assert.equal(w.generatePacks, 1);
+
+  w.deps.cc.openPack = async () => ({ nftAddress: MINT, rarity: "Rare", roll: 7, cardName: "Card", deliveryTx: "delivery" });
+  p.recoverStuck(Date.now() + 6 * MINUTE);
+  assert.equal((await runUntilSettled(p, id)).state, "complete");
+  assert.equal(w.generatePacks, 1);
+  assert.equal(w.treasurySigns, 1);
+});
+
+test("if the RPC has forgotten a paid purchase, Collector Crypt's answer stops a second payment", async () => {
+  const { p, id } = await paidOrder(w);
+  w.sigStatus = "unknown";
+  let o = await p.advance(id);
+  for (let i = 0; i < 5 && !o.buy_sig; i++) o = await p.advance(id);
+  const generated = w.generatePacks;
+  assert.ok(o.buy_sig);
+
+  w.blockhashOk = false;
+  w.ccSawPayment = true;
+  assert.equal((await runUntilSettled(p, id)).state, "complete");
+  assert.equal(w.generatePacks, generated);
+});
+
+test("an order stuck before minting resumes at the mint, and settlement proof is still required", async () => {
+  w.settledDelta = 1n;
+  const { p, id } = await paidOrder(w);
+  await stuck(p, id);
+  p.recoverStuck(Date.now() + 6 * MINUTE);
+  assert.equal(w.deps.db.order(id)!.state, "awaiting_payment");
+  await stuck(p, id); // still unproven: back to stuck, with no mint
+  assert.equal(w.mints, 0);
+
+  w.settledDelta = 25_250_000n;
+  p.recoverStuck(Date.now() + 6 * MINUTE);
+  assert.equal((await runUntilSettled(p, id)).state, "complete");
+  assert.equal(w.mints, 1);
+});
+
+test("a retry round is short: three more attempts, not another twelve", async () => {
+  w.balance = 0n;
+  const { p, id } = await paidOrder(w);
+  await stuck(p, id);
+  p.recoverStuck(Date.now() + 6 * MINUTE);
+  let passes = 0;
+  let o = w.deps.db.order(id)!;
+  while (o.state !== "needs_attention" && passes++ < 20) o = await p.advance(id);
+  assert.equal(passes, 3);
+});
+
+test("automatic retries stop after a day, and a manual retry still works", async () => {
+  w.balance = 0n;
+  const { p, id } = await paidOrder(w);
+  await stuck(p, id);
+  p.recoverStuck(Date.now() + 25 * 60 * MINUTE);
+  assert.equal(w.deps.db.order(id)!.state, "needs_attention");
+  assert.equal(p.retry(id, Date.now() + 25 * 60 * MINUTE).state, "minted");
+});
+
+test("manual retry: unknown orders, orders that aren't stuck and repeat presses are refused", async () => {
+  w.balance = 0n;
+  const { p, id } = await paidOrder(w);
+  assert.throws(() => p.retry("nope"), { status: 404 });
+  assert.throws(() => p.retry(id), { status: 409 }); // still running normally
+  await stuck(p, id);
+  assert.throws(() => p.retry(id), { status: 429 }); // it only just failed
+  p.retry(id, Date.now() + 2 * MINUTE);
+  assert.throws(() => p.retry(id, Date.now() + 4 * MINUTE), { status: 409 });
+});
+
+test("refunded and rejected orders are final: nothing restarts them", async () => {
+  w.checkout.nextScript = ["PROCESSING", "REFUNDED"];
+  const { p, id } = await paidOrder(w);
+  assert.equal((await runUntilSettled(p, id)).state, "refunded");
+  p.recoverStuck(Date.now() + 6 * MINUTE);
+  assert.equal(w.deps.db.order(id)!.state, "refunded");
+  assert.throws(() => p.retry(id, Date.now() + 6 * MINUTE), { status: 409 });
 });
 
 test("refunded and failed payments never mint", async () => {

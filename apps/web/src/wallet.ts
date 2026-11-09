@@ -1,5 +1,5 @@
 // The session's NEAR account: an implicit account, created and funded by the relayer at the first paid order.
-// Its key is either held by Privy (email or passkey sign-in, the only option on mainnet) or, on testnet, generated in this browser.
+// Its key is either held by Privy (email sign-in, the only option on mainnet) or, on testnet, generated in this browser.
 import { Account, FailoverRpcProvider, JsonRpcProvider, KeyPair, KeyPairSigner, keyToImplicitAddress, PublicKey, Signer } from "near-api-js";
 import type { Health } from "./api";
 

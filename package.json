@@ -8,11 +8,13 @@
   "scripts": {
     "demo:testnet": "pnpm --filter @mintent/scripts demo:testnet",
     "verify:pull": "pnpm --filter @mintent/scripts verify:pull",
-    "test": "pnpm --filter @mintent/checkout test && pnpm --filter @mintent/relayer test && pnpm test:contracts",
+    "test": "pnpm --filter @mintent/checkout test && pnpm --filter @mintent/relayer test && pnpm test:web && pnpm test:contracts",
     "test:contracts": "cd contracts && cargo test",
     "build:contracts": "cd contracts/mintent && cargo near build non-reproducible-wasm && cp ../target/near/mintent/mintent.wasm ../res/mintent.wasm",
     "typecheck": "tsc -p .",
-    "relayer": "pnpm --filter @mintent/relayer start"
+    "relayer": "pnpm --filter @mintent/relayer start",
+    "test:web": "pnpm --filter @mintent/web test",
+    "web": "pnpm --filter @mintent/web dev"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -20,6 +22,6 @@
     "typescript": "^7.0.2"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.22"
   }
 }

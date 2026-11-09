@@ -9,6 +9,23 @@ import type { Deps } from "./deps.js";
 
 const MAX_ATTEMPTS_AFTER_PAYMENT = 12;
 const USDC_DECIMALS = 1_000_000n;
+// Enough for the fees and rent of a purchase and a sell-back. Below this, an order we took payment for would stall.
+export const MIN_TREASURY_LAMPORTS = 5_000_000n;
+// With a 5 s tick, 12 attempts is only about a minute, so a short RPC or treasury outage must not strand a paid order.
+const ATTEMPTS_PER_RETRY = 3;
+const AUTO_RETRY_EVERY_MS = 5 * 60_000;
+const AUTO_RETRY_FOR_MS = 24 * 60 * 60_000;
+const MANUAL_RETRY_COOLDOWN_MS = 60_000;
+
+/**
+ * Where a stuck order picks up again, worked out from what it has already recorded so no step can repeat its effect:
+ * payment is proven again from the chain, the contract refuses a second mint, and purchase() checks any earlier
+ * transaction before it builds a new one.
+ */
+export function resumeState(o: Order): Order["state"] {
+  if (!o.settle_tx) return "awaiting_payment";
+  return o.token_id ? "minted" : "paid";
+}
 
 export interface CreateOrderInput {
   buyer: string;
@@ -27,7 +44,12 @@ export class OrderPipeline {
   constructor(private d: Deps) {}
 
   async createOrder(input: CreateOrderInput): Promise<{ order: Order; quote: CheckoutQuote }> {
-    const { config, cc, checkout, chain, db } = this.d;
+    const { config, cc, checkout, chain, db, log } = this.d;
+    const sol = await chain.treasurySol();
+    if (sol < MIN_TREASURY_LAMPORTS) {
+      log(`REFUSING ORDERS: treasury ${chain.treasury.toBase58()} holds ${sol} lamports, needs ${MIN_TREASURY_LAMPORTS}. Add SOL.`);
+      throw Object.assign(new Error("Mintent can't take new orders right now. You haven't been charged. Please try again later."), { status: 503 });
+    }
     const machine = await cc.machine(input.packType);
     const price = BigInt(Math.round(machine.price)) * USDC_DECIMALS;
     const amountOut = withServiceFee(price, config.serviceFeeBps);
@@ -87,7 +109,31 @@ export class OrderPipeline {
   }
 
   async advanceAll(): Promise<void> {
+    this.recoverStuck();
     for (const o of this.d.db.openOrders()) await this.advance(o.id);
+  }
+
+  private resume(o: Order, why: string): Order {
+    const state = resumeState(o);
+    this.d.log(`order ${o.id}: needs_attention -> ${state} (${why}; last error: ${o.last_error})`);
+    return this.d.db.updateOrder(o.id, { state, attempts: MAX_ATTEMPTS_AFTER_PAYMENT - ATTEMPTS_PER_RETRY });
+  }
+
+  /** Give stuck orders a few more attempts every few minutes, for a day. After that only retry() restarts them. */
+  recoverStuck(now = Date.now()): void {
+    for (const o of this.d.db.stuckOrders()) {
+      if (this.inFlight.has(o.id) || now - o.updated_at < AUTO_RETRY_EVERY_MS || now - o.created_at > AUTO_RETRY_FOR_MS) continue;
+      this.resume(o, "automatic retry");
+    }
+  }
+
+  /** The customer's or operator's "try again now". Anyone can call it: a retry only repeats what the tick would do. */
+  retry(id: string, now = Date.now()): Order {
+    const o = this.d.db.order(id);
+    if (!o) throw Object.assign(new Error("unknown order"), { status: 404 });
+    if (o.state !== "needs_attention" || this.inFlight.has(id)) throw Object.assign(new Error("this order isn't waiting for a retry"), { status: 409 });
+    if (now - o.updated_at < MANUAL_RETRY_COOLDOWN_MS) throw Object.assign(new Error("we just tried this order; try again in a minute"), { status: 429 });
+    return this.resume(o, "manual retry");
   }
 
   private step(o: Order): Promise<Order> {
@@ -165,6 +211,9 @@ export class OrderPipeline {
       if (st === "confirmed") return db.updateOrder(o.id, { state: "purchased", attempts: 0, last_error: null });
       if (st === "unknown" && (await chain.blockhashValid(o.buy_blockhash!))) return o; // may still land: wait
       if (st === "unknown" && (await chain.signatureStatus(o.buy_sig)) === "confirmed") return db.updateOrder(o.id, { state: "purchased", attempts: 0, last_error: null });
+      // A retry can come long after the transaction, and an RPC may have pruned it. Collector Crypt only opens a pack it
+      // was paid for, so ask it too before building a transaction that would pay a second time.
+      if (st === "unknown" && o.memo && (await cc.openPack(o.memo).catch(() => null))) return db.updateOrder(o.id, { state: "purchased", attempts: 0, last_error: null });
       o = db.updateOrder(o.id, { buy_sig: null, buy_blockhash: null, memo: null });
     }
 

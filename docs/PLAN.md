@@ -1,6 +1,6 @@
 # Mintent: Build Plan (5 Nov to 14 Nov 2026, 23:59 UTC)
 
-Last updated: **8 Nov 2026**. All dates and times are UTC. Anything marked **(approval)** needs your explicit OK first.
+Last updated: **9 Nov 2026**. All dates and times are UTC. Anything marked **(approval)** needs your explicit OK first.
 
 **Design:** Mintent is a NEAR front end to Collector Crypt (CC) packs (`RESEARCH-FINDINGS.md` section 5.2), built only on CC's public, keyless APIs. No partnership or CC-issued key is needed; any partnership comes after the full build (D-022).
 - You pay for each pack through a NEAR Intents checkout, from any chain.
@@ -22,7 +22,7 @@ Last updated: **8 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 | Contract hardening | **Done 8 Nov.** Signing policy and transfer locks after the pre-sign attack was proven (D-015, `THREAT-MODEL.md`). 46 unit tests and a sandbox run. |
 | `packages/checkout`, `services/relayer` | **Done 8 Nov.** 7 + 31 tests. HTTP API smoke-tested. |
 | `pnpm demo:testnet` | **Passes from nothing: 23/23 checks in 6.3 min on real networks** (`EVIDENCE.md`). |
-| Web app | **Working on testnet, 8 Nov:** rebuilt with motion and depth (D-025): gallery home page, pack shop and detail pages, checkout, tap-to-tear reveal, dashboard, card page with proof panel, transfer, sell back, withdraw, security page. Two-user browser test passes on real networks, 18 of 18 (`apps/web/e2e/flow.mjs`). Privy email sign-in works on testnet with live signing, 9 Nov (D-026). Open for mainnet prep: no retry path for `needs_attention` orders; check real sell-back availability. |
+| Web app | **Working on testnet, 8 Nov:** rebuilt with motion and depth (D-025): gallery home page, pack shop and detail pages, checkout, tap-to-tear reveal, dashboard, card page with proof panel, transfer, sell back, withdraw, security page. Two-user browser test passes on real networks, 18 of 18 (`apps/web/e2e/flow.mjs`). Privy email sign-in works on testnet with live signing, 9 Nov (D-026). Stuck paid orders now recover by themselves (D-027). Open for mainnet prep: check real sell-back availability. |
 | Mainnet | **Nothing run yet.** Dry quotes only. |
 | Blocker 2 (redemption) | **Decided (D-022):** withdraw the card to the owner's own Solana wallet, then redeem on Collector Crypt's site. No partnership needed. |
 | Blocker 4 (pricing) | **Verified.** |
@@ -56,7 +56,7 @@ Last updated: **8 Nov 2026**. All dates and times are UTC. Anything marked **(ap
    - Idempotent per `order_id`, with a retry when the blockhash expires.
 4. **One exit that proves ownership moves with the token:** transfer the NEP-171 token; the **new** owner sells the card back (CC buyback or a `cc_buyback` quote); the old owner's signing attempt fails.
 5. **Withdraw to my own Solana wallet:** the owner moves the card out, which releases the token. This is how a card is redeemed for the physical slab (on Collector Crypt's site) or listed on a marketplace.
-6. **Web app:** Privy email/passkey sign-in, pack shop, checkout (pay from any chain), the opening reveal, a card page with a proof panel, transfer and sell back.
+6. **Web app:** Privy email sign-in, pack shop, checkout (pay from any chain), the opening reveal, a card page with a proof panel, transfer and sell back.
 7. **AI-judge path:**
    - `pnpm demo:testnet` runs NEAR testnet, a Tidepool checkout, Solana devnet and CC devnet end to end, headless. It falls back to fixtures if Tidepool `/v0/health` or CC devnet is down.
    - `pnpm verify:pull <token_id>` re-checks every claim.
@@ -68,7 +68,7 @@ Last updated: **8 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 2. A **"pay from any chain" checkout demo page for a non-Mintent merchant**, reusing `packages/checkout`. This answers Illia's "universal checkout" idea and supports a `realworld` entry. Drop it if behind schedule.
 4. ~~List and cancel on the CC marketplace.~~ Removed: a listing survives an NFT sale (D-016). Withdraw the card first, then list.
 5. Cash-out to any chain via Intents.
-6. NEAR Auth passkeys (mainnet approval). EVM-chain CC packs. Hosted demo kept up until 25 Nov.
+6. EVM-chain CC packs. Hosted demo kept up until 25 Nov.
 
 ### Out of scope
 
@@ -107,7 +107,7 @@ Own inventory, own odds, a pricing engine, Magic Eden/Tensor connectors, OutLaye
 
 ## Demo script (≤ 2 min)
 
-1. **0:00** "Real graded cards, paid from any chain, owned as a NEAR NFT." Email or passkey sign-in; no wallet popup.
+1. **0:00** "Real graded cards, paid from any chain, owned as a NEAR NFT." Email sign-in; no wallet popup.
 2. **0:15** Pick the $50 pack, then **Checkout:** choose BTC and get a deposit address. Payment lands (pre-recorded clip with the BTC hash, because BTC confirmations are slow).
 3. **0:35** A sealed NEP-171 token is minted on NEAR (show the transaction).
 4. **0:50** Open it. The reveal shows the slab (NFT media) and insured value. The proof panel shows: CC VRF verify ✓, the Solana delivery transaction to the token's derived address, and `derived_public_key("card/<id>", <contract>, 1)` matching it.
@@ -146,6 +146,6 @@ mintent/
 | **TypeScript relayer and checkout** | CC, Solana (`@solana/web3.js` 3.1), the 1Click SDK and Privy are all TypeScript-first. |
 | **Build Solana transactions off-chain, sign on-chain** | The contract decides *who* may sign for *which* path. Card owners sign anything for their own card. The treasury is relayer-only, which is a documented trust assumption. |
 | **Tidepool for testnet 1Click** | The only Intents path on testnet, using the same `/v0` API and the official SDK through a base-URL swap. It's unofficial and custodial: test tokens only, never our partner JWT, a fixture fallback, and no reliance on swap hashes (mainnet swaps are confidential). |
-| **Privy, direct** | Mainnet email or passkey sign-in with no approval queue (D-026). |
+| **Privy, direct** | Mainnet email sign-in with no approval queue (D-026). |
 | **SQLite in the relayer** | Durable order state and idempotency with zero infrastructure. |
 | **No OutLayer in the must-haves** | CC's ECVRF already proves fairness. OutLayer's TEE-signature "VRF" would be weaker and duplicative. |

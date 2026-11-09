@@ -11,11 +11,22 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-027 · 9 Nov · Stuck paid orders recover by themselves
+
+- **Why:** an order went to `needs_attention` after 12 failed attempts, and with a 5 s loop that's about a minute. A short RPC, Collector Crypt or treasury outage would have stranded a paid mainnet order for good.
+- **Decision:** the relayer retries stuck orders every 5 minutes for 24 hours, 3 attempts each round. After that, only "Try again now" restarts them. That button is on checkout and the dashboard, with a 60 s cooldown. Refunded and rejected orders are final.
+- **No repeated effects:** the resume point comes from what the order already recorded. Payment is proven on-chain again, the contract refuses a second mint, and the old purchase is checked before any new one.
+- **New guard:** a retry can come long after the purchase, when an RPC may have pruned its signature. Collector Crypt is now asked whether the pack was paid for before the relayer pays again.
+- **Treasury SOL guard:** the devnet treasury was found holding 0.0012 SOL with nothing watching it, which would have stalled the next order. New orders are now refused, before any payment, when it holds under 0.005 SOL, and the relayer logs it. Only new orders are protected; mainnet still needs someone keeping the treasury funded.
+- **Impact on mainnet:** after 24 hours an order still needs a human, and there's no automated refund yet. Mainnet needs an RPC that keeps signature history.
+- **Status:** Adopted.
+
 ### D-026 · 9 Nov · Privy directly, without near-connect
 
 - **Decision:** the web app calls Privy's SDK directly (`@privy-io/react-auth` 3.51.3, `createWallet({ chainType: "near" })`, `useSignRawHash`). This replaces the "via near-connect" part of D-005.
 - **Why:** NEAR's guide recommends direct Privy for a web-style app with social login. near-connect would add a wallet manifest, a separate signing page and a client ID, and its only gain is third-party wallets, which Mintent's buyers don't need.
-- **Impact:** sign-in is email now. Passkey needs enabling in the Privy dashboard, then adding to `loginMethods`. Keys are held by Privy, and users can export them from the account menu. The test account stays on testnet only and is refused on mainnet. The SDK loads as a separate 399 kB (gzipped) chunk, so it doesn't delay the shop.
+- **Email only (your call, 9 Nov):** no passkey option. This also drops the passkey part of D-005.
+- **Impact:** Keys are held by Privy, and users can export them from the account menu. The test account stays on testnet only and is refused on mainnet. The SDK loads as a separate 399 kB (gzipped) chunk, so it doesn't delay the shop.
 - **Before mainnet:** turn off Privy test accounts, because their fixed login code would let anyone sign in to them, and restrict allowed domains.
 - **Status:** Adopted. Proven on testnet with a real login and live signing (see `EVIDENCE.md`).
 
@@ -25,7 +36,7 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 - **Rule:** every dashboard number is read live from NEAR, Solana or Collector Crypt. There are no invented charts or estimates. Vault value is labelled as insured value, not a market price.
 - **Sell-back copy doesn't state a fixed window.** Collector Crypt's docs say 72 hours, but devnet returned a 30-day deadline, and 8 of 8 recent mainnet pulls returned `available: false` when checked read-only. The UI says "limited time" and shows the live deadline from the API. **Check real sell-back availability during the mainnet run.** If new pulls can't be sold back straight away, the pitch and reveal copy need to change.
 - **Testnet treasury top-up:** a browser run stalled because the treasury ran out of devnet USDC-Dev. Testnet payments settle in a different mint, so that balance only drains. The relayer now refills it from the devnet faucet when it's under 100. That code doesn't exist on mainnet, where the buyer's payment funds the purchase.
-- **Known gap, for mainnet prep:** an order that reaches `needs_attention` has no retry path, because the state replaces the step it stopped at. That run's order stayed stuck after the treasury was refilled. Test money only here, but a paid mainnet order would need manual recovery.
+- **Known gap, closed by D-027:** an order that reached `needs_attention` had no retry path.
 - **Status:** Adopted.
 
 ### D-024 · 8 Nov · The relayer sponsors NEAR gas for anyone holding a token

@@ -257,7 +257,16 @@ export function Checkout({ pack, health, wallet, onClose, onDone }: { pack: Pack
             {!failed && <Stepper index={stepIndex} />}
             {state === "refunded" && <p className="error" role="alert">Your payment was refunded, and no pack was bought.</p>}
             {state === "payment_failed" && <p className="error" role="alert">The payment didn't complete, so no pack was bought.</p>}
-            {state === "needs_attention" && <p className="error" role="alert">Your payment arrived, but we couldn't finish the order. It's saved and nothing is lost. Reference: <code>{short(created.orderId)}</code></p>}
+            {state === "needs_attention" && (
+              <div className="stack">
+                <p className="error" role="alert">Your payment arrived, but your order is delayed. We keep retrying it automatically, and your payment is saved. Reference: <code>{short(created.orderId)}</code></p>
+                <button className="btn btn--full" disabled={busy} onClick={() => {
+                  setBusy(true);
+                  setError(null);
+                  api.retryOrder(created.orderId).catch((e) => setError(e.message)).finally(() => setBusy(false));
+                }}>Try again now</button>
+              </div>
+            )}
             {error && <p className="error" role="alert">{error}</p>}
             <p className="hint">You can close this. Your order keeps going, and you can follow it on your dashboard.</p>
           </motion.div>

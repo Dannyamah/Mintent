@@ -97,7 +97,6 @@ export default function PrivyBridge({ appId, ...rest }: Props) {
     <PrivyProvider
       appId={appId}
       config={{
-        // Add "passkey" once it's enabled in the Privy dashboard. Listing it first shows a sign-in option that fails.
         loginMethods: ["email"],
         appearance: { theme: "dark", accentColor: "#7CF5C4", showWalletLoginFirst: false, landingHeader: "Sign in to Mintent" },
       }}

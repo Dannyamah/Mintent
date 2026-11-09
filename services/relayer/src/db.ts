@@ -9,7 +9,7 @@ export type OrderState =
   | "complete" // card delivered and recorded on NEAR
   | "refunded" // 1Click returned the customer's money
   | "payment_failed" // the swap failed or settlement didn't verify
-  | "needs_attention"; // the customer paid but we couldn't finish: a human must look
+  | "needs_attention"; // the customer paid but we couldn't finish yet: retried automatically for a day, then a human must look
 
 export interface Order {
   id: string; // 1Click deposit address
@@ -109,6 +109,10 @@ export class Db {
 
   openOrders(): Order[] {
     return this.db.prepare("SELECT * FROM orders WHERE state IN ('awaiting_payment','paid','minted','purchased')").all() as unknown as Order[];
+  }
+
+  stuckOrders(): Order[] {
+    return this.db.prepare("SELECT * FROM orders WHERE state = 'needs_attention'").all() as unknown as Order[];
   }
 
   updateOrder(id: string, patch: Partial<Order>): Order {

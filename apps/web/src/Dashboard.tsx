@@ -11,7 +11,7 @@ const money = (n: number) => usd(Math.round(n * 100) / 100);
 type Filter = "all" | "held" | "sold" | "out";
 const FILTERS: [Filter, string][] = [["all", "All"], ["held", "Holding"], ["sold", "Sold back"], ["out", "Withdrawn"]];
 type Sort = "newest" | "value";
-const ORDER_LABEL: Record<string, string> = { awaiting_payment: "Waiting for your payment", paid: "Minting your NFT", minted: "Buying your pack", purchased: "Drawing your card", needs_attention: "Needs our attention" };
+const ORDER_LABEL: Record<string, string> = { awaiting_payment: "Waiting for your payment", paid: "Minting your NFT", minted: "Buying your pack", purchased: "Drawing your card", needs_attention: "Delayed. We keep retrying automatically" };
 const RARITIES: Rarity[] = ["epic", "rare", "uncommon", "common"];
 
 function isHeld(c: Card) {
@@ -71,6 +71,7 @@ function Active({ orders, health, onPaid }: { orders: ActiveOrder[]; health: Hea
               <strong>{usd(units(o.priceUnits))} pack</strong>
               <span className="hint">{ORDER_LABEL[o.state] ?? o.state} · started {timeAgo(o.createdAt)}</span>
             </div>
+            {o.state === "needs_attention" && <button className="btn btn--small" onClick={() => api.retryOrder(o.orderId).then(onPaid, onPaid)}>Try again now</button>}
             {o.state === "awaiting_payment" && o.status === "PENDING_DEPOSIT" && health.testPay && (
               <button className="btn btn--small" onClick={() => api.testPay(o.orderId).then(onPaid, () => undefined)}>Pay with test USDC</button>
             )}
