@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { encode } from "uqr";
 import { api, short, timeLeft, units, usd, type Health, type Order, type OrderCreated, type Pack, type PayAsset } from "./api";
 import { CopyButton, EASE, Sheet, useNow } from "./ui";
-import type { LoginWallet } from "./privy";
+import type { LoginWallet, WalletPayment } from "./privy";
 import type { Wallet } from "./wallet";
 
 const STEPS: { state: string; label: string; note: string }[] = [
@@ -88,7 +88,13 @@ function Stepper({ index }: { index: number }) {
   );
 }
 
-export function Checkout({ pack, health, wallet, loginWallet, onClose, onDone }: { pack: Pack; health: Health; wallet: Wallet; loginWallet: LoginWallet | null; onClose: () => void; onDone: (tokenId: string) => void }) {
+// Chains a connected Ethereum wallet can pay from in one click. Testnet uses the Sepolia networks Tidepool bridges.
+const EVM_CHAIN_IDS: Record<Health["network"], Record<string, number>> = {
+  mainnet: { eth: 1, base: 8453, arb: 42161 },
+  testnet: { eth: 11155111, base: 84532, arb: 421614 },
+};
+
+export function Checkout({ pack, health, wallet, loginWallet, payFromWallet, onClose, onDone }: { pack: Pack; health: Health; wallet: Wallet; loginWallet: LoginWallet | null; payFromWallet?: (p: WalletPayment) => Promise<string>; onClose: () => void; onDone: (tokenId: string) => void }) {
   const [assets, setAssets] = useState<PayAsset[]>([]);
   const [assetId, setAssetId] = useState("");
   const [refundTo, setRefundTo] = useState("");
@@ -164,6 +170,24 @@ export function Checkout({ pack, health, wallet, loginWallet, onClose, onDone }:
     } catch (e) {
       const why = e instanceof Error ? e.message : "";
       setError(/free test packs|already been paid/.test(why) ? why : "The test payment didn't go through. Try again in a moment.");
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const chainId = asset ? EVM_CHAIN_IDS[health.network][asset.chain] : undefined;
+  const oneClick = payFromWallet && chainId && asset && (asset.contract || asset.symbol === "ETH") ? payFromWallet : undefined;
+  const payNow = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const hash = await oneClick!({ chainId: chainId!, to: created!.depositAddress, token: asset!.contract ?? null, amount: BigInt(created!.amountIn) });
+      setPaid(true);
+      await api.submitDeposit(created!.orderId, hash).catch(() => undefined); // only speeds up detection
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      setError(/reject|denied|cancel/i.test(why) ? "You cancelled the payment in your wallet. Nothing was sent." : "Your wallet couldn't send the payment. You can still pay by sending to the address below.");
       console.error(e);
     } finally {
       setBusy(false);
@@ -255,6 +279,13 @@ export function Checkout({ pack, health, wallet, loginWallet, onClose, onDone }:
                       </button>
                     </>
                   ) : (
+                    <>
+                    {oneClick && (
+                      <button className="btn btn--primary btn--full" disabled={busy} onClick={payNow}>
+                        {busy ? <><span className="spinner" aria-hidden="true" /> Confirm in your wallet…</> : `Pay ${created.amountInFormatted ?? units(created.amountIn)} ${asset?.symbol} from your wallet`}
+                      </button>
+                    )}
+                    {oneClick && <p className="hint pay__or">Or send it yourself:</p>}
                     <div className="pay__qr">
                       <Qr text={created.depositAddress} />
                       <div className="pay__addr">
@@ -268,6 +299,7 @@ export function Checkout({ pack, health, wallet, loginWallet, onClose, onDone }:
                         </div>
                       )}
                     </div>
+                    </>
                   )}
                 </motion.div>
               )}

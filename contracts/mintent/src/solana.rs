@@ -260,3 +260,60 @@ pub fn check_keeper_sellback(msg: &Message, asset: &Pubkey, allowed_mints: &[Pub
     Ok(u64::from_le_bytes(price.try_into().map_err(|_| "the payment has no price")?))
 }
 
+/// What a keeper's payout may be: the NFT's USDC split into exactly two transfers, the owner's share to `payout` and a fee to
+/// `treasury`, each into a token account the message creates for that owner, and nothing else. Returns (owner's share, fee).
+/// Both transfers must come from the same authority, which can only be the card's address: nothing else can sign for its USDC.
+pub fn check_keeper_payout(msg: &Message, payout: &Pubkey, treasury: &Pubkey, allowed_mints: &[Pubkey]) -> Result<(u64, u64), &'static str> {
+    let (system, budget, ata, token) = (decode(SYSTEM_PROGRAM), decode(COMPUTE_BUDGET_PROGRAM), decode(ATA_PROGRAM), decode(TOKEN_PROGRAM));
+    let mut creates = Vec::new();
+    let mut transfers = Vec::new();
+    for (i, ix) in msg.instructions.iter().enumerate() {
+        let program = msg.keys[ix.program_index];
+        if program == budget || (program == system && i == 0) {
+            continue;
+        } else if program == ata {
+            creates.push(ix);
+        } else if program == token && ix.data.first() == Some(&SPL_TRANSFER_CHECKED) {
+            transfers.push(ix);
+        } else {
+            return Err("a keeper may only pay out to the owner's address");
+        }
+    }
+    if transfers.len() != 2 || creates.len() > 2 {
+        return Err("a payout is one transfer to the owner and one fee");
+    }
+    let key = |ix: &Instruction, n: usize| ix.accounts.get(n).map(|a| msg.keys[*a]).ok_or("instruction is missing accounts");
+    let amount = |ix: &Instruction| -> Result<u64, &'static str> {
+        let b = ix.data.get(1..9).ok_or("transfer has no amount")?;
+        Ok(u64::from_le_bytes(b.try_into().map_err(|_| "transfer has no amount")?))
+    };
+    // Which owner each destination belongs to, by the token account the message creates for it.
+    let owner_of = |dest: Pubkey, mint: Pubkey| -> Result<Pubkey, &'static str> {
+        for c in &creates {
+            if key(c, 1)? == dest && key(c, 3)? == mint {
+                return key(c, 2);
+            }
+        }
+        Err("a transfer goes to an account the message doesn't create")
+    };
+    let mint = key(transfers[0], 1)?;
+    if !allowed_mints.contains(&mint) || key(transfers[1], 1)? != mint {
+        return Err("it pays in a coin that isn't allowed");
+    }
+    if key(transfers[0], 3)? != key(transfers[1], 3)? {
+        return Err("the two transfers come from different accounts");
+    }
+    let (mut net, mut fee) = (None, None);
+    for t in &transfers {
+        let owner = owner_of(key(t, 2)?, mint)?;
+        if owner == *payout && net.is_none() {
+            net = Some(amount(t)?);
+        } else if owner == *treasury && fee.is_none() {
+            fee = Some(amount(t)?);
+        } else {
+            return Err("the money goes to an address the owner didn't choose");
+        }
+    }
+    Ok((net.ok_or("nothing goes to the owner")?, fee.ok_or("no fee")?))
+}
+

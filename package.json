@@ -14,7 +14,8 @@
     "typecheck": "tsc -p .",
     "relayer": "pnpm --filter @mintent/relayer start",
     "test:web": "pnpm --filter @mintent/web test",
-    "web": "pnpm --filter @mintent/web dev"
+    "web": "pnpm --filter @mintent/web dev",
+    "verify:keeper": "pnpm --filter @mintent/scripts verify:keeper"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

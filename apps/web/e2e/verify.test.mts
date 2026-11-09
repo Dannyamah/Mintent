@@ -167,3 +167,12 @@ test("a cash-out quote must name what the owner chose", () => {
   q.quote.depositAddress = "other";
   refused(() => checkCashOutQuote(q, expected), /deposit address/);
 });
+
+test("one-click payment encodes a standard ERC-20 transfer, and refuses bad input", async () => {
+  const { erc20Transfer } = await import("../src/evm.ts");
+  const data = erc20Transfer("0x5674A57440f8a32588e621dB7e39a387D98DDE3D", 25_568_980n);
+  assert.equal(data, "0xa9059cbb0000000000000000000000005674a57440f8a32588e621db7e39a387d98dde3d" + (25_568_980).toString(16).padStart(64, "0"));
+  assert.equal(data.length, 2 + 8 + 128);
+  assert.throws(() => erc20Transfer("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", 1n), /not an Ethereum address/);
+  assert.throws(() => erc20Transfer("0x5674A57440f8a32588e621dB7e39a387D98DDE3D", 0n), /positive/);
+});

@@ -62,6 +62,8 @@ enum StorageKey {
     NonceAccounts,
     PaymentMints,
     Keepers,
+    KeepersV2,
+    Settings,
 }
 
 /// An owner's permission for one agent to sell this token's card back to Collector Crypt, at no less than `min_price`
@@ -73,7 +75,24 @@ pub struct KeeperGrant {
     pub agent: AccountId,
     pub min_price: U64,
     pub expires_ms: U64,
+    /// Where the Keeper may send the proceeds afterwards: a Solana address the owner chose. None means it never pays out.
+    pub payout: Option<String>,
+    /// The owner's timing preference: sell only near the end of Collector Crypt's offer. The Keeper follows it; the contract's
+    /// limits don't depend on it.
+    pub hold: bool,
 }
+
+/// Mintent's fee on USDC leaving an NFT: 1%, at least 0.25 USDC. The same rule as the relayer and the app, so the contract can
+/// check a Keeper's payout charges exactly this.
+pub const EXIT_FEE_BPS: u64 = 100;
+pub const EXIT_FEE_MIN_UNITS: u64 = 250_000;
+
+pub fn exit_fee(total: u64) -> u64 {
+    let percent = (total as u128 * EXIT_FEE_BPS as u128).div_ceil(10_000) as u64;
+    percent.max(EXIT_FEE_MIN_UNITS)
+}
+
+const ICON: &str = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0908'/%3E%3Cmask id='m'%3E%3Crect x='12' y='3' width='40' height='58' rx='8' fill='%23fff'/%3E%3Crect x='12' y='15' width='40' height='4.5'/%3E%3Cpath d='M21 53V28.5l11 12 11-12V53' fill='none' stroke='%23000' stroke-width='6.5'/%3E%3C/mask%3E%3Cg transform='translate(8 8) scale(.75)'%3E%3Crect width='64' height='64' fill='%237cf5c4' mask='url(%23m)'/%3E%3C/g%3E%3C/svg%3E";
 
 /// Longest permission an owner can give at once.
 pub const MAX_KEEPER_MS: u64 = 90 * 24 * 60 * 60 * 1000;
@@ -223,6 +242,7 @@ impl Contract {
             "sign_lock_ms": SIGN_LOCK_MS,
             "nonce_accounts": self.nonce_accounts.iter().collect::<Vec<_>>(),
             "payment_mints": self.payment_mints.iter().collect::<Vec<_>>(),
+            "treasury_address": Self::settings().get(&"treasury".to_string()),
         })
     }
 
@@ -313,7 +333,26 @@ impl Contract {
         );
         record.status = CardStatus::Released;
         record.release_reason = Some(reason.clone());
-        Self::keepers().remove(&token_id);
+        // A Keeper that may pay out still has work to do after the sale. Otherwise its permission ends here.
+        if Self::keepers().get(&token_id).is_some_and(|g| g.payout.is_none()) {
+            Self::keepers().remove(&token_id);
+        }
+        // Wallets show the token's metadata, so it must stop presenting a card the NFT no longer holds.
+        if let Some(meta_by_id) = self.tokens.token_metadata_by_id.as_mut() {
+            if let Some(mut meta) = meta_by_id.get(&token_id) {
+                let label = match reason.as_str() {
+                    "bought_back" => "Sold back",
+                    "withdrawn" => "Withdrawn",
+                    _ => "Released",
+                };
+                meta.title = meta.title.map(|t| format!("{label}: {t}"));
+                meta.description = Some(format!(
+                    "{label}. This NFT no longer holds its card. Any USDC from a sale stays at its Solana address (card/{token_id}) until its owner moves it."
+                ));
+                meta.updated_at = Some(env::block_timestamp_ms().to_string());
+                meta_by_id.insert(&token_id, &meta);
+            }
+        }
         self.cards.insert(token_id.clone(), record);
         emit("card_released", json!({ "token_id": token_id, "reason": reason }));
     }
@@ -350,7 +389,7 @@ impl Contract {
     /// The owner lets `agent_id` sell this card back for at least `min_price` USDC base units until `expires_ms`.
     /// Replaces any earlier permission. Requires 1 yoctoNEAR, so a function-call key can't grant one.
     #[payable]
-    pub fn grant_keeper(&mut self, token_id: TokenId, agent_id: AccountId, min_price: U64, expires_ms: U64) {
+    pub fn grant_keeper(&mut self, token_id: TokenId, agent_id: AccountId, min_price: U64, expires_ms: U64, payout: Option<String>, hold: Option<bool>) {
         require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
         let owner = self.tokens.owner_by_id.get(&token_id).unwrap_or_else(|| env::panic_str("unknown token"));
         require!(env::predecessor_account_id() == owner, "only the token owner can set a keeper");
@@ -359,9 +398,12 @@ impl Contract {
         let now = env::block_timestamp_ms();
         require!(expires_ms.0 > now && expires_ms.0 <= now + MAX_KEEPER_MS, "the keeper's end must be in the next 90 days");
         require!(min_price.0 > 0, "set a minimum price");
-        let grant = KeeperGrant { agent: agent_id, min_price, expires_ms };
+        if let Some(address) = &payout {
+            solana::decode_pubkey(address).unwrap_or_else(|_| env::panic_str("the payout address isn't a Solana address"));
+        }
+        let grant = KeeperGrant { agent: agent_id, min_price, expires_ms, payout, hold: hold.unwrap_or(false) };
         Self::keepers().insert(&token_id, &grant);
-        emit("keeper_granted", json!({ "token_id": token_id, "owner": owner, "agent": grant.agent, "min_price": grant.min_price, "expires_ms": grant.expires_ms }));
+        emit("keeper_granted", json!({ "token_id": token_id, "owner": owner, "agent": grant.agent, "min_price": grant.min_price, "expires_ms": grant.expires_ms, "payout": grant.payout, "hold": grant.hold }));
     }
 
     #[payable]
@@ -396,12 +438,48 @@ impl Contract {
         self.issue_card_signature(token_id, payload_hex, grant.agent, classified, true)
     }
 
+    /// After a sale, the Keeper sends the NFT's USDC to the owner's chosen address, less Mintent's exit fee to the treasury, and
+    /// nothing else (`solana::check_keeper_payout`). Only if the owner named a payout address.
+    #[payable]
+    pub fn keeper_payout(&mut self, token_id: TokenId, payload_hex: String) -> Promise {
+        require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
+        let grant = Self::keepers().get(&token_id).unwrap_or_else(|| env::panic_str("this token has no keeper"));
+        require!(env::predecessor_account_id() == grant.agent, "only this token's keeper can sign");
+        require!(env::block_timestamp_ms() < grant.expires_ms.0, "the keeper's permission has ended");
+        let payout = grant.payout.as_deref().and_then(|a| solana::decode_pubkey(a).ok()).unwrap_or_else(|| env::panic_str("the owner didn't allow a payout"));
+        let treasury = self.treasury_key().unwrap_or_else(|| env::panic_str("the treasury address isn't set"));
+
+        let classified = self.classify(&payload_hex);
+        require!(!classified.moves_card && classified.uses_durable_nonce, "a keeper's payout can't move the card");
+        let bytes = hex::decode(&payload_hex).unwrap_or_else(|_| env::panic_str("payload_hex is not valid hex"));
+        let msg = solana::parse_message(&bytes).unwrap_or_else(|e| env::panic_str(e));
+        let mints: Vec<solana::Pubkey> = self.payment_mints.iter().filter_map(|a| solana::decode_pubkey(a).ok()).collect();
+        let (net, fee) = solana::check_keeper_payout(&msg, &payout, &treasury, &mints).unwrap_or_else(|e| env::panic_str(e));
+        require!(fee == exit_fee(net + fee), "the fee isn't Mintent's exit fee");
+        self.issue_card_signature(token_id, payload_hex, grant.agent, classified, true)
+    }
+
     pub fn get_keeper(&self, token_id: TokenId) -> Option<KeeperGrant> {
         Self::keepers().get(&token_id)
     }
 
+    /// The treasury's Solana address, so the contract can recognise Mintent's fee in a Keeper's payout. Set by the owner.
+    pub fn set_treasury_address(&mut self, address: String) {
+        self.assert_owner();
+        solana::decode_pubkey(&address).unwrap_or_else(|e| env::panic_str(e));
+        Self::settings().insert(&"treasury".to_string(), &address);
+    }
+
+    fn treasury_key(&self) -> Option<solana::Pubkey> {
+        Self::settings().get(&"treasury".to_string()).and_then(|a| solana::decode_pubkey(&a).ok())
+    }
+
     fn keepers() -> near_sdk::collections::LookupMap<TokenId, KeeperGrant> {
-        near_sdk::collections::LookupMap::new(StorageKey::Keepers)
+        near_sdk::collections::LookupMap::new(StorageKey::KeepersV2)
+    }
+
+    fn settings() -> near_sdk::collections::LookupMap<String, String> {
+        near_sdk::collections::LookupMap::new(StorageKey::Settings)
     }
 
     /// Lock the token and ask the MPC network to sign for `card/<token_id>`. Callers have already checked who may ask.
@@ -607,7 +685,7 @@ impl NonFungibleTokenMetadataProvider for Contract {
             spec: NFT_METADATA_SPEC.to_string(),
             name: "Mintent Cards".to_string(),
             symbol: "MINTENT".to_string(),
-            icon: None,
+            icon: Some(ICON.to_string()),
             base_uri: None,
             reference: None,
             reference_hash: None,

@@ -39,6 +39,7 @@ export interface ContractApi {
   signForTreasury(message: Uint8Array): Promise<Uint8Array>;
   /** Only the Keeper uses this, with its own account. */
   keeperSign?(keeper: import("near-api-js").Account, tokenId: string, message: Uint8Array): Promise<Uint8Array>;
+  keeperPayout?(keeper: import("near-api-js").Account, tokenId: string, message: Uint8Array): Promise<Uint8Array>;
 }
 
 export type CcApi = Pick<CcClient, "machines" | "machine" | "recentPulls" | "imageUrl" | "buybackAvailable" | "generatePack" | "openPack" | "buybackQuote" | "card" | "verifyUrl">;

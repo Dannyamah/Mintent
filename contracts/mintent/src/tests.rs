@@ -620,7 +620,7 @@ fn kept() -> Contract {
     ctx(relayer(), 0);
     c.record_open("0".into(), "m".into(), bs58::encode(fake(5)).into_string(), "n".into(), "Common".into(), U64(1), U64(1), None);
     ctx(alice(), 1);
-    c.grant_keeper("0".into(), keeper(), U64(FLOOR), U64(T0_MS + 3_600_000));
+    c.grant_keeper("0".into(), keeper(), U64(FLOOR), U64(T0_MS + 3_600_000), None, None);
     c
 }
 
@@ -693,7 +693,7 @@ fn selling_the_nft_clears_the_permission() {
 fn only_the_owner_can_grant() {
     let mut c = kept();
     ctx(bob(), 1);
-    c.grant_keeper("0".into(), bob(), U64(1), U64(T0_MS + 1000));
+    c.grant_keeper("0".into(), bob(), U64(1), U64(T0_MS + 1000), None, None);
 }
 
 #[test]
@@ -701,7 +701,7 @@ fn only_the_owner_can_grant() {
 fn granting_needs_a_deposit_so_function_call_keys_cannot() {
     let mut c = kept();
     ctx(alice(), 0);
-    c.grant_keeper("0".into(), bob(), U64(1), U64(T0_MS + 1000));
+    c.grant_keeper("0".into(), bob(), U64(1), U64(T0_MS + 1000), None, None);
 }
 
 #[test]
@@ -709,7 +709,7 @@ fn granting_needs_a_deposit_so_function_call_keys_cannot() {
 fn a_permission_cannot_be_endless() {
     let mut c = kept();
     ctx(alice(), 1);
-    c.grant_keeper("0".into(), keeper(), U64(1), U64(T0_MS + MAX_KEEPER_MS + 1));
+    c.grant_keeper("0".into(), keeper(), U64(1), U64(T0_MS + MAX_KEEPER_MS + 1), None, None);
 }
 
 #[test]
@@ -789,3 +789,152 @@ fn the_owner_keeps_full_control_while_a_keeper_is_set() {
     let _ = c.sign_for_card("0".into(), hx(build(&[advance_nonce(key(NONCE)), core_move(fake(5), fake(2), fake(66))], true)));
     assert_eq!(c.get_card("0".into()).unwrap().record.status, CardStatus::Exiting);
 }
+
+// ---------- keeper payout ----------
+// fake(20) is the owner's payout address, fake(21) the treasury; fake(22) and fake(23) are their USDC accounts.
+
+fn spl_transfer(to: Pubkey, amount: u64) -> Ix {
+    let mut data = vec![12];
+    data.extend_from_slice(&amount.to_le_bytes());
+    data.push(6);
+    Ix { program: key(TOKEN_PROGRAM), accounts: vec![fake(9), key(USDC), to, fake(2)], data }
+}
+fn payout_with(net: u64, fee: u64, f: impl FnOnce(&mut Vec<Ix>)) -> String {
+    let mut ixs = vec![
+        advance_nonce(key(NONCE)),
+        ata_create(fake(20), fake(22), key(USDC)),
+        spl_transfer(fake(22), net),
+        ata_create(fake(21), fake(23), key(USDC)),
+        spl_transfer(fake(23), fee),
+    ];
+    f(&mut ixs);
+    hx(build(&ixs, true))
+}
+
+/// Token "0" was sold back by its Keeper, which may pay out to fake(20). The treasury is fake(21).
+fn sold_with_payout() -> Contract {
+    let mut c = setup();
+    ctx(owner(), 0);
+    c.set_treasury_address(bs58::encode(fake(21)).into_string());
+    ctx(relayer(), 0);
+    c.record_open("0".into(), "m".into(), bs58::encode(fake(5)).into_string(), "Card".into(), "Common".into(), U64(1), U64(1), None);
+    ctx(alice(), 1);
+    c.grant_keeper("0".into(), keeper(), U64(FLOOR), U64(T0_MS + 3_600_000), Some(bs58::encode(fake(20)).into_string()), Some(true));
+    ctx(relayer(), 0);
+    c.record_release("0".into(), "bought_back".into());
+    c
+}
+
+#[test]
+fn exit_fee_matches_the_app_and_relayer() {
+    assert_eq!(exit_fee(15_300_000), 250_000);
+    assert_eq!(exit_fee(100_000_000), 1_000_000);
+    assert_eq!(exit_fee(100_000_001), 1_000_001);
+    assert_eq!(exit_fee(1), 250_000);
+}
+
+#[test]
+fn keeper_pays_out_the_owner_less_the_exact_fee() {
+    let mut c = sold_with_payout();
+    let grant = c.get_keeper("0".into()).unwrap();
+    assert!(grant.hold);
+    ctx(keeper(), 1);
+    let _ = c.keeper_payout("0".into(), payout_with(15_050_000, 250_000, |_| {}));
+    let (_, args) = scheduled_sign_args();
+    assert_eq!(args["request"]["path"], "card/0");
+}
+
+#[test]
+fn a_permission_with_a_payout_outlasts_the_sale() {
+    let c = sold_with_payout();
+    assert!(c.get_keeper("0".into()).is_some());
+}
+
+#[test]
+fn a_permission_without_a_payout_ends_with_the_sale() {
+    let mut c = kept();
+    ctx(relayer(), 0);
+    c.record_release("0".into(), "bought_back".into());
+    assert!(c.get_keeper("0".into()).is_none());
+}
+
+#[test]
+fn a_sold_back_nft_says_so_in_wallets() {
+    let c = sold_with_payout();
+    let meta = c.nft_token("0".into()).unwrap().metadata.unwrap();
+    assert!(meta.title.unwrap().starts_with("Sold back: "));
+    assert!(meta.description.unwrap().contains("no longer holds its card"));
+    assert!(c.nft_metadata().icon.unwrap().starts_with("data:image/svg+xml"));
+}
+
+#[test]
+#[should_panic(expected = "the fee isn't Mintent's exit fee")]
+fn attack_keeper_takes_a_bigger_fee() {
+    let mut c = sold_with_payout();
+    ctx(keeper(), 1);
+    let _ = c.keeper_payout("0".into(), payout_with(15_000_000, 300_000, |_| {}));
+}
+
+#[test]
+#[should_panic(expected = "an address the owner didn't choose")]
+fn attack_keeper_pays_itself_instead_of_the_owner() {
+    let mut c = sold_with_payout();
+    ctx(keeper(), 1);
+    let _ = c.keeper_payout("0".into(), payout_with(15_050_000, 250_000, |ixs| {
+        ixs[1] = ata_create(fake(66), fake(67), key(USDC));
+        ixs[2] = spl_transfer(fake(67), 15_050_000);
+    }));
+}
+
+#[test]
+#[should_panic(expected = "account the message doesn't create")]
+fn attack_keeper_creates_the_owners_account_but_pays_another() {
+    let mut c = sold_with_payout();
+    ctx(keeper(), 1);
+    let _ = c.keeper_payout("0".into(), payout_with(15_050_000, 250_000, |ixs| ixs[2] = spl_transfer(fake(67), 15_050_000)));
+}
+
+#[test]
+#[should_panic(expected = "one transfer to the owner and one fee")]
+fn attack_keeper_adds_a_third_transfer() {
+    let mut c = sold_with_payout();
+    ctx(keeper(), 1);
+    let _ = c.keeper_payout("0".into(), payout_with(15_050_000, 250_000, |ixs| ixs.push(spl_transfer(fake(22), 1))));
+}
+
+#[test]
+#[should_panic(expected = "can't move the card")]
+fn attack_keeper_moves_the_card_in_a_payout() {
+    let mut c = sold_with_payout();
+    ctx(keeper(), 1);
+    let _ = c.keeper_payout("0".into(), payout_with(15_050_000, 250_000, |ixs| ixs.push(core_move(fake(5), fake(2), fake(66)))));
+}
+
+#[test]
+#[should_panic(expected = "didn't allow a payout")]
+fn no_payout_unless_the_owner_named_an_address() {
+    let mut c = kept();
+    ctx(owner(), 0);
+    c.set_treasury_address(bs58::encode(fake(21)).into_string());
+    ctx(keeper(), 1);
+    let _ = c.keeper_payout("0".into(), payout_with(15_050_000, 250_000, |_| {}));
+}
+
+#[test]
+#[should_panic(expected = "only the contract owner")]
+fn only_the_owner_sets_the_treasury_address() {
+    let mut c = setup();
+    ctx(alice(), 0);
+    c.set_treasury_address(bs58::encode(fake(21)).into_string());
+}
+
+#[test]
+#[should_panic(expected = "has no keeper")]
+fn selling_the_nft_after_a_sale_ends_the_payout_permission() {
+    let mut c = sold_with_payout();
+    ctx(alice(), 1);
+    c.nft_transfer(bob(), "0".into(), None, None);
+    ctx(keeper(), 1);
+    let _ = c.keeper_payout("0".into(), payout_with(15_050_000, 250_000, |_| {}));
+}
+

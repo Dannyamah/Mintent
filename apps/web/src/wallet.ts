@@ -22,7 +22,7 @@ export interface Wallet {
   signForCard(tokenId: string, messageHex: string, intent: SigningIntent): Promise<string>;
   transfer(tokenId: string, receiver: string): Promise<void>;
   /** Let `agent` sell this card back for at least `minPriceUnits` USDC base units until `expiresMs`. */
-  grantKeeper(tokenId: string, agent: string, minPriceUnits: bigint, expiresMs: number): Promise<void>;
+  grantKeeper(tokenId: string, agent: string, minPriceUnits: bigint, expiresMs: number, opts?: { payout?: string; hold?: boolean }): Promise<void>;
   revokeKeeper(tokenId: string): Promise<void>;
 }
 
@@ -184,8 +184,8 @@ function walletFrom(accountId: string, signer: Signer, health: Health): Wallet {
     async transfer(tokenId, receiver) {
       await account.callFunction({ contractId: contract, methodName: "nft_transfer", args: { receiver_id: receiver, token_id: tokenId }, deposit: 1n, gas: 30n * TGAS });
     },
-    async grantKeeper(tokenId, agent, minPriceUnits, expiresMs) {
-      await account.callFunction({ contractId: contract, methodName: "grant_keeper", args: { token_id: tokenId, agent_id: agent, min_price: minPriceUnits.toString(), expires_ms: String(Math.floor(expiresMs)) }, deposit: 1n, gas: 30n * TGAS });
+    async grantKeeper(tokenId, agent, minPriceUnits, expiresMs, opts = {}) {
+      await account.callFunction({ contractId: contract, methodName: "grant_keeper", args: { token_id: tokenId, agent_id: agent, min_price: minPriceUnits.toString(), expires_ms: String(Math.floor(expiresMs)), payout: opts.payout ?? null, hold: opts.hold ?? false }, deposit: 1n, gas: 30n * TGAS });
     },
     async revokeKeeper(tokenId) {
       await account.callFunction({ contractId: contract, methodName: "revoke_keeper", args: { token_id: tokenId }, deposit: 1n, gas: 30n * TGAS });

@@ -61,6 +61,19 @@ export class CardOps {
     return this.create("sellback", tokenId, view.owner_id, instructions, { ...detail, keeper: agent }, true, agent);
   }
 
+  /** After a Keeper's sale: the NFT's USDC to the owner's chosen address, less the exit fee. Signed by the Keeper. */
+  async prepareKeeperPayout(tokenId: string, agent: string): Promise<Op> {
+    const { chain, config } = this.d;
+    const view = await this.d.contract.getCard(tokenId);
+    if (!view) throw new Error(`unknown token ${tokenId}`);
+    const grant = view.keeper;
+    if (grant?.agent !== agent || Date.now() >= Number(grant.expires_ms) || !grant.payout) throw new Error(`${agent} has no live payout permission for token ${tokenId}`);
+    const card = new PublicKey(await chain.cardAddress(tokenId));
+    const amount = await chain.tokenBalance(card.toBase58(), config.ccPaymentMint);
+    const exit = await this.usdcExit(card, new PublicKey(grant.payout), amount);
+    return this.create("withdraw_proceeds", tokenId, view.owner_id, exit.instructions, { destination: grant.payout, amount: amount.toString(), fee: exit.fee.toString(), net: exit.net.toString(), mint: config.ccPaymentMint, keeper: agent }, false, agent);
+  }
+
   private async sellbackParts(tokenId: string, view: NonNullable<Awaited<ReturnType<Deps["contract"]["getCard"]>>>) {
     const { chain, cc } = this.d;
     if (view.record.status !== "Opened" || !view.record.card_mint) throw new Error(`token ${tokenId} holds no card (${view.record.status})`);

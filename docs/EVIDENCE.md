@@ -143,9 +143,36 @@ After those attempts, the card was still at the NFT's address and the Keeper had
 
 The contract has 19 Keeper unit tests among its 65, and the relayer has 5 among its 70.
 
+The same test then ran against the **hosted** testnet site and relayer on Railway, again passing all 10 checks in 3.7 minutes. Token 24, a $72.25 offer, got three on-chain refusals: [withdraw](https://testnet.nearblocks.io/txns/FfcT4PFWcLnGzeEYxuEQjeFXYVHHobgJEUM4Cvhzb4nq), [below the minimum](https://testnet.nearblocks.io/txns/9B2qrs2YPu7kDG1DVSDrRGL3vyGcARPm4E1nGFfDFiKy) and [pay itself](https://testnet.nearblocks.io/txns/FkoMGCJRyCG9R7XFnhASHWW32qcMbLij2q7sdbDtkVSj). The hosted Keeper then sold the card for the owner.
+
+## Keeper v2, live on testnet, 9 Nov
+
+`apps/web/e2e/keeper.mjs` again, through the real app on real test networks: 14 checks in 4.3 minutes, on token 25 (a $22.10 offer). The owner's payout address was a fresh one, `G8G8378cr4vcAGx5LE5DW8XBqyHxKibgiqd9DhPbRYDq`.
+
+| The Keeper, with its real key, tried to | Contract's answer | Transaction |
+| --- | --- | --- |
+| Withdraw the card to itself | "a keeper may only sign a sell-back to Collector Crypt" | [DRXHsP5J…](https://testnet.nearblocks.io/txns/DRXHsP5JVZ1fgJDunY4km5tH1je45xH91bzBGkhK69cb) |
+| Sell below the owner's minimum | "the price is below the owner's minimum" | [b3snbsDC…](https://testnet.nearblocks.io/txns/b3snbsDCNESNHKD5RXWUKxJVLhZMut7fCLdjYq3nvAt) |
+| Sell with the money paid to itself | "the money doesn't go to the card's own address" | [FzJsheVo…](https://testnet.nearblocks.io/txns/FzJsheVo8Qus37TUMTu8vSDSdT6dHUdYrkWD9LvUfxgS) |
+| Pay itself instead of the owner | "the money goes to an address the owner didn't choose" | [6ctHushd…](https://testnet.nearblocks.io/txns/6ctHushdEPgkxjdShxXgAa3A8prFuSTT6pdCYu2uowbP) |
+| Pay the owner, but take a bigger fee | "the fee isn't Mintent's exit fee" | [EDx5ZEWG…](https://testnet.nearblocks.io/txns/EDx5ZEWGoAEK9zcCWTxmGH4cyC31d6Q45KyBGyGmxWR9) |
+
+In hold mode, the Keeper said "Holding your card: the $22.10 offer meets your minimum, and I'll sell in its last 24 hours, from Tue, 08 Dec 2026", and didn't sell. Switched to sell now, it sold for $22.10 ([NEAR](https://testnet.nearblocks.io/txns/AVADAfWMxaLoXPtBPhfUisVDE7BrXMSL8tV4vx3Gc9uv)), then paid out ([NEAR](https://testnet.nearblocks.io/txns/Gq3QEAaX4PgJwBMXEThFXS1aCWEugumHzoexB8yPAfWC)). The owner's fresh address received exactly $21.85, the sale less the $0.25 fee, and the NFT kept nothing.
+
+`pnpm verify:keeper mintent-con-mw7mmwr5.testnet 25` re-checks this from public data and passes: the permission, the card, the price against the minimum, where the money went, the exact fee, and that each signed transaction landed on Solana. It also counts the five refused attempts. Token 24 passes too.
+
+## One-click payment from a connected wallet, 9 Nov
+
+`apps/web/e2e/onepay.mjs`: a throwaway Base Sepolia wallet, injected the way MetaMask injects itself, signed in through Privy's real service. It paid with the checkout's "Pay 25.56898 USDC from your wallet" button. The wallet sent [the payment on Base Sepolia](https://sepolia.basescan.org/tx/0xcf36efe9d263996d001ad52feceefa96e57fd8f4d67f5f66d5c5c78b84ac8385) to the deposit address, and token 27 was delivered to the wallet user's NEAR account. Six checks passed in 2.1 minutes.
+
+## NFTs that show the truth in wallets, 9 Nov
+
+On the upgraded testnet contract, sold-back token 25's metadata reads "Sold back: 2025 #222 Jamming Tower PSA 10 J", with a description saying it no longer holds its card. Token 8, still holding its card, shows the card's title and image. The collection now has the Mintent icon, which we rendered to check.
+
 ## What has not been shown
 
-- **The Keeper on mainnet.** The mainnet contract has it (upgraded 9 Nov), and `keeper.xinju.near` exists, but no mainnet sale has run.
+- **The Keeper on mainnet.** The mainnet contract has Keeper v2 (upgraded 9 Nov), and `keeper.xinju.near` exists, but no mainnet sale or payout has run.
+- **One-click payment with a real extension, or on mainnet.** It ran with an injected test wallet on Base Sepolia.
 
 - **No mainnet run.** The contract is deployed at `mintent.xinju.near`, but holds no tokens yet. One real, unsigned $25 mainnet purchase transaction passed `assertSafePackTx` on 9 Nov (`scripts/src/mainnet-pack-check.ts`), with nothing signed or sent. No purchase, sell-back or cash-out has run on mainnet.
 - **Payment on testnet is not spent on the pack.** Tidepool's test USDC isn't the token Collector Crypt's devnet charges, so the treasury pays from pre-stocked USDC-Dev. On mainnet, both are real USDC.

@@ -11,6 +11,18 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-034 · 9 Nov · Keeper v2, verify:keeper, NFTs that change with the card, one-click wallet payment
+
+- **Your approval:** all four, and the mainnet upgrade.
+- **Hold mode:** the owner can keep the card and have the Keeper sell only in the offer's last 24 hours, if the offer still meets the minimum. This follows from measuring that the offer doesn't rise: the real risk is missing the deadline. Hold is the owner's preference, which the Keeper follows; the contract's limits don't depend on it. With no known deadline, the Keeper sells rather than risk missing it.
+- **Autopilot payout:** after the sale, the Keeper may send the NFT's USDC to a Solana address the owner chose when granting, less Mintent's exact exit fee. `keeper_payout` signs only two transfers, into token accounts the message creates for the owner's address and the treasury, with the fee equal to `exit_fee(total)`. The contract learned the treasury's address through a one-off, owner-only `set_treasury_address`. A permission with a payout outlasts the sale and still clears if the NFT is sold.
+- **Visible reasoning:** the card page shows the Keeper's latest decision, such as "Waiting: the offer is $14.00, below your $15.00 minimum" or "Holding your card… I'll sell in its last 24 hours, from 8 Dec".
+- **`pnpm verify:keeper <contract> <token>`:** re-checks every Keeper action from public data. NearBlocks only finds the transactions; NEAR RPC and Solana RPC supply the facts. NearBlocks' public API returns the latest 100 transactions and doesn't page, so older histories are reported as incomplete, not passed.
+- **Dynamic NFT metadata:** when a card leaves, the NFT's title becomes "Sold back: …" or "Withdrawn: …" and its description says it no longer holds a card, so wallets don't show a card that isn't there. The collection has the Mintent icon.
+- **One-click payment:** someone signed in with an Ethereum wallet can pay from it in one click, with USDC, USDT or ETH on Ethereum, Base or Arbitrum (Sepolia on testnet). The deposit address and QR code stay as the fallback.
+- **Upgrades, no migration:** permissions moved to a new storage key, and the treasury address to a settings key, both outside the state struct. Testnet was upgraded ([tx](https://testnet.nearblocks.io/txns/HpfWFrHxKmyDtx71s4MeczftZGRPjHP83LhTJyB24uXa)) and kept 25 tokens. Mainnet was upgraded ([tx](https://nearblocks.io/txns/iMJXmu1wQMmTxthY5THwVGLbAwzAzu38uCrh7Fbscfw)), and its treasury address set ([tx](https://nearblocks.io/txns/7RXguD6YqN787qpNiMESMkqDaCUCxyCijoUAPeEAQGp1)), keeping every setting. Code hash `8fveNoGpAtGkcM69VBABxeb2CoNgSsmm3o7sRawX6yZc`.
+- **Status:** Adopted. Proven live on testnet (`EVIDENCE.md`).
+
 ### D-033 · 9 Nov · The Keeper; tracks chosen
 
 - **Your decisions:** build the Keeper, and enter `nfts`, `security`, `agents` and `open`.

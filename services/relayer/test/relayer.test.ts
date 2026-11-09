@@ -725,6 +725,52 @@ test("the relayer won't co-sign if the owner withdraws the permission, or sells 
   }
 });
 
+test("hold mode: the Keeper keeps the card until the offer's last 24 hours", () => {
+  const grant = { min_price: "15000000", expires_ms: String(Date.now() + 40 * 86_400_000), hold: true };
+  const offer = (hoursLeft: number) => ({ available: true, amountUnits: 15_300_000, expiresAt: new Date(Date.now() + hoursLeft * 3_600_000).toISOString() });
+  const early = keeperShouldSell(grant, offer(72), Date.now());
+  assert.equal(early.sell, false);
+  assert.match(early.why, /Holding your card/);
+  assert.equal(keeperShouldSell(grant, offer(23), Date.now()).sell, true);
+  assert.equal(keeperShouldSell(grant, { available: true, amountUnits: 15_300_000, expiresAt: null }, Date.now()).sell, true, "unknown deadline: don't risk missing it");
+  assert.equal(keeperShouldSell({ ...grant, hold: false }, offer(72), Date.now()).sell, true);
+});
+
+test("the owner can read why the Keeper is waiting", async () => {
+  const { tick } = await keptCard(14_000_000);
+  await tick();
+  assert.match(w.deps.db.keeperStatus("0")?.detail ?? "", /Waiting: the offer is \$14\.00, below your \$15\.00 minimum/);
+});
+
+test("after selling, the Keeper pays the owner's chosen address, less the exit fee, as the owner's own withdrawal", async () => {
+  const payout = keypair().address;
+  const { tick } = await keptCard(15_300_000);
+  w.card.keeper = { agent: "keeper", min_price: "15000000", expires_ms: FUTURE(), payout };
+  const paid: string[] = [];
+  w.deps.contract.keeperPayout = async (_k, tokenId, m) => { paid.push(tokenId); return cardKp.sign(m); };
+  const logs: string[] = [];
+  w.deps.log = (m) => logs.push(m);
+  const [sold] = await tick();
+  assert.equal(sold.action, "sold");
+  assert.equal(w.card.record.status, "Released");
+  w.deps.contract.checkCardMessage = async () => ({ moves_card: false, uses_durable_nonce: true }); // a payout moves USDC, not the card
+  const [payoutDecision] = await tick();
+  assert.deepEqual(logs.filter((l) => /keeper: token/.test(l)), []);
+  assert.equal(payoutDecision.action, "paid");
+  assert.deepEqual(paid, ["0"]);
+  const op = w.deps.db.opsByActor("alice").find((o) => o.kind === "withdraw_proceeds")!;
+  const detail = JSON.parse(op.detail);
+  assert.equal(detail.destination, payout);
+  assert.equal(detail.keeper, "keeper");
+  assert.equal(BigInt(detail.net) + BigInt(detail.fee), w.balance);
+  assert.match(w.deps.db.keeperStatus("0")?.detail ?? "", /Sent you/);
+});
+
+test("no payout without an address the owner chose", async () => {
+  const { ops } = await keptCard(15_300_000);
+  await assert.rejects(ops.prepareKeeperPayout("0", "keeper"), /no live payout permission/);
+});
+
 test("the Keeper can't prepare a sale without a live permission of its own", async () => {
   const { ops } = await keptCard(15_300_000);
   await assert.rejects(ops.prepareKeeperSellback("0", "someone-else"), /no live permission/);

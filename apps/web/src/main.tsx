@@ -309,6 +309,7 @@ function App() {
               health={health}
               wallet={wallet!}
               loginWallet={privy?.wallet ? privy.loginWallet : null}
+              payFromWallet={privy?.wallet ? privy.payFromWallet : undefined}
               onClose={() => setPicked(null)}
               onDone={(id) => {
                 setPicked(null);

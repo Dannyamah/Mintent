@@ -3,7 +3,7 @@
 // Usage: tsx src/keeper-attack.ts <token-id>   (uses scripts/.demo-state.json and ~/.near-credentials/testnet/keeper.<dev>.json)
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { readFileSync } from "node:fs";
-import { ata, authorizeAndPayIx, CcClient, CONFIGS, coreTransferIx, createAtaIdempotentIx, loadAccount, setComputeUnitLimitIx } from "@mintent/shared";
+import { ata, authorizeAndPayIx, CcClient, CONFIGS, coreTransferIx, createAtaIdempotentIx, loadAccount, setComputeUnitLimitIx, transferCheckedIx } from "@mintent/shared";
 import { createRuntime } from "@mintent/relayer";
 
 const [tokenId] = process.argv.slice(2);
@@ -47,6 +47,27 @@ await attempt("sell back with the money paid to the Keeper", [
   setComputeUnitLimitIx(250_000), ed, await createAtaIdempotentIx(d.chain.treasury, attacker, mint, tokenProgram),
   coreTransferIx(asset, collection, d.chain.treasury, card, new PublicKey(q.destinationOwner)), authorizeAndPayIx(q, card, asset, await ata(attacker, mint, tokenProgram)),
 ]);
+// Payout attacks, if the owner allowed a payout: pay the Keeper instead, or take a bigger fee than Mintent's.
+async function payoutAttempt(name: string, to: PublicKey, net: bigint, fee: bigint) {
+  const tx = await d.chain.buildNonceTx(1, [
+    await createAtaIdempotentIx(d.chain.treasury, to, mint, tokenProgram),
+    transferCheckedIx(await ata(card, mint, tokenProgram), mint, await ata(to, mint, tokenProgram), card, net, 6),
+    await createAtaIdempotentIx(d.chain.treasury, d.chain.treasury, mint, tokenProgram),
+    transferCheckedIx(await ata(card, mint, tokenProgram), mint, await ata(d.chain.treasury, mint, tokenProgram), card, fee, 6),
+  ]);
+  try {
+    await keeper.callFunction({ contractId: state.contract, methodName: "keeper_payout", args: { token_id: tokenId, payload_hex: Buffer.from(tx.message.serialize()).toString("hex") }, deposit: 1n, gas: 100_000_000_000_000n });
+    console.log(`SIGNED  ${name}   <- the contract should have refused this`);
+  } catch (e) {
+    const err = e as { message?: string; transactionResult?: { transaction?: { hash?: string } } };
+    const why = String(err.message ?? e).match(/panicked: ([^\n"]+)/)?.[1] ?? String(err.message ?? e).slice(0, 120);
+    console.log(`REFUSED ${name}: "${why}"  tx ${err.transactionResult?.transaction?.hash ?? "?"}`);
+  }
+}
+if (view.keeper.payout) {
+  await payoutAttempt("pay out to the Keeper instead of the owner", attacker, 1_000_000n, 250_000n);
+  await payoutAttempt("pay the owner but take a bigger fee", new PublicKey(view.keeper.payout), 1_000_000n, 300_000n);
+}
 const after = await d.contract.getCard(tokenId);
 console.log(`after: ${after?.record.status}, card still at the NFT's address: ${(await d.chain.assetOwner(view.record.card_mint)).owner === card.toBase58()}`);
 process.exit(0);

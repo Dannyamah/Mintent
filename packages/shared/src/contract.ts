@@ -20,7 +20,7 @@ export interface CardView {
     release_reason: string | null;
   };
   /** The owner's Keeper permission, if any. USDC base units and unix ms, as strings. */
-  keeper?: { agent: string; min_price: string; expires_ms: string } | null;
+  keeper?: { agent: string; min_price: string; expires_ms: string; payout?: string | null; hold?: boolean } | null;
 }
 
 const TGAS = 1_000_000_000_000n;
@@ -111,8 +111,12 @@ export class MintentContract {
     return signatureFrom(await retryNonce(() => keeper.callFunction({ contractId: this.contractId, methodName: "keeper_sign", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 1n, gas: 100n * TGAS })));
   }
 
-  async grantKeeper(owner: Account, tokenId: string, agent: string, minPriceUnits: bigint, expiresMs: number): Promise<void> {
-    await owner.callFunction({ contractId: this.contractId, methodName: "grant_keeper", args: { token_id: tokenId, agent_id: agent, min_price: minPriceUnits.toString(), expires_ms: String(expiresMs) }, deposit: 1n, gas: 30n * TGAS });
+  async keeperPayout(keeper: Account, tokenId: string, message: Uint8Array): Promise<Uint8Array> {
+    return signatureFrom(await retryNonce(() => keeper.callFunction({ contractId: this.contractId, methodName: "keeper_payout", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 1n, gas: 100n * TGAS })));
+  }
+
+  async grantKeeper(owner: Account, tokenId: string, agent: string, minPriceUnits: bigint, expiresMs: number, opts: { payout?: string; hold?: boolean } = {}): Promise<void> {
+    await owner.callFunction({ contractId: this.contractId, methodName: "grant_keeper", args: { token_id: tokenId, agent_id: agent, min_price: minPriceUnits.toString(), expires_ms: String(expiresMs), payout: opts.payout ?? null, hold: opts.hold ?? false }, deposit: 1n, gas: 30n * TGAS });
   }
 
   async transfer(owner: Account, receiver: string, tokenId: string): Promise<void> {

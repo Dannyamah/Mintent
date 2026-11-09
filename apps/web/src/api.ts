@@ -12,7 +12,7 @@ export interface Health { network: "testnet" | "mainnet"; contract: string; trea
 export interface Pull { mint: string; image: string; thumb: string; grader: string | null; grade: string | null; insuredValue: number; url: string | null; packType: string | null; rarityTier: number | null; at: string | null }
 export interface Pack { code: string; name: string; price: number; odds: Record<string, number>; expectedValue: number | null; buybackPct: number }
 export interface PackDetail extends Pack { recent: Pull[]; recentIsFromThisPack: boolean }
-export interface PayAsset { assetId: string; symbol: string; chain: string; decimals: number; price?: number }
+export interface PayAsset { assetId: string; symbol: string; chain: string; decimals: number; price?: number; contract?: string | null }
 export interface OrderCreated { orderId: string; depositAddress: string; depositMemo?: string; amountIn: string; amountInFormatted?: string; deadline: string; priceUnits: string; amountOut: string; timeEstimateSeconds?: number }
 export interface Order { id: string; state: string; checkout_status: string | null; token_id: string | null; card_address: string | null; card_mint: string | null; card_name: string | null; rarity: string | null; insured_cents: number | null; buy_sig: string | null; delivery_tx: string | null; settle_tx: string | null; last_error: string | null; verifyUrl: string | null }
 export type CardStatus = "Sealed" | "Opened" | "Exiting" | "Released";
@@ -21,7 +21,8 @@ export interface Card {
   record: { status: CardStatus; pack_type: string; memo: string | null; card_mint: string | null; rarity: string | null; insured_value_usd_cents: string | null; release_reason: string | null };
   solanaAddress: string; holder: string | null; heldByToken: boolean; proceedsUnits: string; verifyUrl: string | null; contractId: string; mpcContract: string;
   name: string | null; image: string | null; thumb: string | null; offer: { amountUnits: number; expiresAt: string | null } | null; mintedAt: number | null;
-  keeper?: { agent: string; min_price: string; expires_ms: string } | null;
+  keeper?: { agent: string; min_price: string; expires_ms: string; payout?: string | null; hold?: boolean } | null;
+  keeperStatus?: { action: string; detail: string; at: number } | null;
 }
 export interface Op { id: string; kind: string; message_hex: string; detail: string; state: string; tx_sig: string | null; expires_at: number; swap_status?: string | null; swap_amount_out?: string | null; swap_dest_tx?: string | null }
 export interface ActiveOrder { orderId: string; state: string; status: string | null; packType: string; priceUnits: string; createdAt: number; lastError: string | null }
@@ -39,6 +40,7 @@ export const api = {
   cashOutAssets: () => call<PayAsset[]>("/cash-out-assets"),
   cashOut: (id: string, actor: string, destinationAsset: string, recipient: string) => call<Op>(`/cards/${encodeURIComponent(id)}/cash-out`, { actor, destinationAsset, recipient }),
   op: (id: string) => call<Op>(`/ops/${encodeURIComponent(id)}`),
+  submitDeposit: (id: string, txHash: string) => call<{ ok: boolean }>(`/orders/${encodeURIComponent(id)}/deposit`, { txHash }),
   retryOrder: (id: string) => call<{ ok: boolean; state: string }>(`/orders/${encodeURIComponent(id)}/retry`, {}),
   testPay: (id: string) => call<{ ok: boolean }>(`/orders/${encodeURIComponent(id)}/test-pay`, {}),
   dashboard: (account: string) => call<Dashboard>(`/owners/${encodeURIComponent(account)}/dashboard`),

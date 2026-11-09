@@ -1,10 +1,11 @@
 // Privy sign-in, in its own chunk because the SDK is large and the shop should not wait for it. It renders nothing itself:
 // it reports the signed-in state up to App, and Privy draws its own login window.
-import { PrivyProvider, useLogin, useLogout, usePrivy } from "@privy-io/react-auth";
+import { PrivyProvider, useLogin, useLogout, usePrivy, useWallets } from "@privy-io/react-auth";
 import { useCreateWallet, useExportWallet, useSignRawHash } from "@privy-io/react-auth/extended-chains";
 import { toSolanaWalletConnectors } from "@privy-io/react-auth/solana";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Health } from "./api";
+import { erc20Transfer } from "./evm";
 import { privyWallet, type SignRawHash, type Wallet } from "./wallet";
 
 /** The wallet someone signed in with, if any. It's their login, and a handy default address. It doesn't own the NFT. */
@@ -14,6 +15,15 @@ export interface LoginWallet {
 }
 
 const solanaConnectors = toSolanaWalletConnectors();
+
+/** A payment the connected wallet sends itself: a token transfer, or the chain's own coin when `token` is null. */
+export interface WalletPayment {
+  chainId: number;
+  to: string;
+  token: string | null;
+  amount: bigint;
+}
+
 
 export interface PrivyState {
   ready: boolean;
@@ -26,6 +36,8 @@ export interface PrivyState {
   logout(): Promise<void>;
   exportKey(): Promise<void>;
   retry(): void;
+  /** Present when the user signed in with an Ethereum wallet: pay straight from it. Returns the transaction hash. */
+  payFromWallet?: (p: WalletPayment) => Promise<string>;
 }
 
 interface Props {
@@ -42,6 +54,7 @@ function Bridge({ health, onState, onLoginCancelled }: Omit<Props, "appId">) {
   const { createWallet } = useCreateWallet();
   const { exportWallet } = useExportWallet();
   const { signRawHash } = useSignRawHash();
+  const { wallets } = useWallets();
 
   const [created, setCreated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +97,16 @@ function Bridge({ health, onState, onLoginCancelled }: Omit<Props, "appId">) {
     }
   }, [address, health]);
 
+  const payer = loginWallet?.chainType === "ethereum" ? wallets.find((w) => w.address.toLowerCase() === loginWallet.address.toLowerCase()) : undefined;
+  const payFromWallet = payer
+    ? async ({ chainId, to, token, amount }: WalletPayment) => {
+        await payer.switchChain(chainId);
+        const provider = await payer.getEthereumProvider();
+        const tx = token ? { from: payer.address, to: token, data: erc20Transfer(to, amount) } : { from: payer.address, to, value: `0x${amount.toString(16)}` };
+        return (await provider.request({ method: "eth_sendTransaction", params: [tx] })) as string;
+      }
+    : undefined;
+
   useEffect(() => {
     onState({
       ready,
@@ -98,9 +121,10 @@ function Bridge({ health, onState, onLoginCancelled }: Omit<Props, "appId">) {
         attempted.current = false;
         setError(null);
       },
+      payFromWallet,
     });
     // eslint-disable-next-line -- login, logout and exportWallet are rebuilt by Privy; the latest closure is reported on each state change.
-  }, [address, authenticated, error, loginWallet?.address, ready, wallet]);
+  }, [address, authenticated, error, loginWallet?.address, ready, wallet, payer?.address]);
 
   return null;
 }

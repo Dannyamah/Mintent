@@ -86,6 +86,7 @@ export class Db {
         tx_sig TEXT, error TEXT, swap_deposit_tx TEXT, swap_status TEXT, swap_amount_out TEXT, swap_dest_tx TEXT, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
       );
     `);
+    this.db.exec("CREATE TABLE IF NOT EXISTS keeper_status (token_id TEXT PRIMARY KEY, action TEXT NOT NULL, detail TEXT NOT NULL, at INTEGER NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS test_pays (order_id TEXT PRIMARY KEY, buyer TEXT NOT NULL, visitor TEXT NOT NULL, at INTEGER NOT NULL)");
     // Databases made before cash-outs existed.
     const columns = (this.db.prepare("PRAGMA table_info(ops)").all() as unknown as { name: string }[]).map((c) => c.name);
@@ -122,6 +123,15 @@ export class Db {
 
   stuckOrders(): Order[] {
     return this.db.prepare("SELECT * FROM orders WHERE state = 'needs_attention'").all() as unknown as Order[];
+  }
+
+  /** What the Keeper last decided about a token, for its owner to read. */
+  setKeeperStatus(tokenId: string, action: string, detail: string): void {
+    this.db.prepare("INSERT INTO keeper_status (token_id, action, detail, at) VALUES (?,?,?,?) ON CONFLICT(token_id) DO UPDATE SET action = excluded.action, detail = excluded.detail, at = excluded.at").run(tokenId, action, detail, Date.now());
+  }
+
+  keeperStatus(tokenId: string): { action: string; detail: string; at: number } | undefined {
+    return this.db.prepare("SELECT action, detail, at FROM keeper_status WHERE token_id = ?").get(tokenId) as unknown as { action: string; detail: string; at: number } | undefined;
   }
 
   /** Free test payments since `since`: by this visitor, by this account, and by everyone. */

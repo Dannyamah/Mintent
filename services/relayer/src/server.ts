@@ -85,10 +85,11 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
       thumb: mint ? d.cc.imageUrl(mint, 320) : null,
       offer: offer?.available ? { amountUnits: offer.amountUnits, expiresAt: offer.expiresAt } : null,
       mintedAt: order?.created_at ?? null,
+      keeperStatus: d.db.keeperStatus(tokenId) ?? null,
     };
   };
 
-  const assetView = (t: { assetId: string; symbol: string; blockchain: string; decimals: number; price?: number }) => ({ assetId: t.assetId, symbol: t.symbol, chain: t.blockchain, decimals: t.decimals, price: t.price });
+  const assetView = (t: { assetId: string; symbol: string; blockchain: string; decimals: number; price?: number; contractAddress?: string }) => ({ assetId: t.assetId, symbol: t.symbol, chain: t.blockchain, decimals: t.decimals, price: t.price, contract: t.contractAddress ?? null });
 
   const routes: [string, RegExp, (m: RegExpMatchArray, b: any, req: IncomingMessage) => Promise<unknown>][] = [
     ["GET", /^\/health$/, async () => ({ ok: true, network: config.network, contract: contractId, treasury: d.chain.treasury.toBase58(), checkout: d.checkout.name, mpcContract: config.mpcContract, serviceFeeBps: config.serviceFeeBps, defaultPack: CONFIGS[config.network].defaultPack, nearRpcs: [NETWORKS[config.network].rpc, ...NETWORKS[config.network].rpcFallbacks], testPay: Boolean(funder), keeper: keeperId, testPayAsset: funder ? TESTNET_PAY_ASSET : null })],

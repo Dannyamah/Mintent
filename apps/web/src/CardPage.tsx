@@ -354,7 +354,7 @@ export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: st
             )}
           </AnimatePresence>
 
-          {isOwner && s === "Opened" && card.heldByToken && health.keeper && !action && !busy && <KeeperPanel card={card} wallet={wallet!} agent={health.keeper} onChange={load} />}
+          {isOwner && health.keeper && !action && !busy && ((s === "Opened" && card.heldByToken) || (s === "Released" && card.keeper?.payout)) && <KeeperPanel card={card} wallet={wallet!} agent={health.keeper} loginWallet={loginWallet} onChange={load} />}
           <Proof card={card} health={health} />
         </div>
       </div>
