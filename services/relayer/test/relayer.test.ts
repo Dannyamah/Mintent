@@ -135,6 +135,7 @@ function world(): World {
       card: async () => ({ insuredValue: "21.69", frontImage: "img" }),
       verifyUrl: (m: string) => m,
       imageUrl: (m: string) => `img/${m}`,
+      buybackAvailable: async () => ({ available: true, amountUnits: 1, expiresAt: null }),
     } as never,
     contract,
     chain,

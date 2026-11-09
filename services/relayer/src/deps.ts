@@ -7,6 +7,9 @@ import type { Db } from "./db.js";
 
 export type SigStatus = "confirmed" | "failed" | "unknown";
 
+/** Testnet only: refill the treasury from the devnet faucet when it runs low. Never present on mainnet. */
+export type TopUpTestTreasury = () => Promise<void>;
+
 export interface Chain {
   treasury: PublicKey;
   cardAddress(tokenId: string): Promise<string>;
@@ -32,7 +35,7 @@ export interface ContractApi {
   signForTreasury(message: Uint8Array): Promise<Uint8Array>;
 }
 
-export type CcApi = Pick<CcClient, "machines" | "machine" | "recentPulls" | "imageUrl" | "generatePack" | "openPack" | "buybackQuote" | "card" | "verifyUrl">;
+export type CcApi = Pick<CcClient, "machines" | "machine" | "recentPulls" | "imageUrl" | "buybackAvailable" | "generatePack" | "openPack" | "buybackQuote" | "card" | "verifyUrl">;
 
 export interface Sponsor {
   /** Make sure the customer can pay NEAR gas for their own card signatures. */
@@ -49,6 +52,7 @@ export interface Deps {
   sponsor: Sponsor;
   /** Ask the image service to prepare a resized copy now, so the customer doesn't wait for it. Never throws. */
   warmImages?: (urls: string[]) => Promise<void>;
+  topUpTestTreasury?: TopUpTestTreasury;
   log: (msg: string, extra?: unknown) => void;
 }
 

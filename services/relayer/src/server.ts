@@ -47,6 +47,37 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
   const funder = config.network === "testnet" && process.env.DEMO_FUNDER ? loadAccount("testnet", process.env.DEMO_FUNDER) : null;
   let gallery: { at: number; pulls: RecentPull[] } = { at: 0, pulls: [] };
 
+  const packView = (m: Awaited<ReturnType<typeof d.cc.machines>>[number]) => ({ code: m.code, name: neutralPackName(m.price), price: m.price, odds: m.odds, expectedValue: m.ev, buybackPct: m.instantBuyback });
+
+  // Everything the app shows about a token, read live from NEAR, Solana and Collector Crypt.
+  const cardView = async (tokenId: string) => {
+    const card = await d.contract.getCard(tokenId);
+    if (!card) throw Object.assign(new Error("unknown token"), { status: 404 });
+    const address = await d.chain.cardAddress(tokenId);
+    const mint = card.record.card_mint;
+    const holder = mint ? (await d.chain.assetOwner(mint)).owner : null;
+    const proceeds = await d.chain.tokenBalance(address, config.ccPaymentMint);
+    const heldByToken = holder === address;
+    const offer = mint && heldByToken ? await d.cc.buybackAvailable(mint).catch(() => null) : null;
+    const order = d.db.orderByToken(tokenId);
+    const catalog = mint && !order?.card_name ? await d.cc.card(mint).catch(() => null) : null;
+    return {
+      ...card,
+      solanaAddress: address,
+      holder,
+      heldByToken,
+      proceedsUnits: proceeds.toString(),
+      verifyUrl: card.record.memo ? d.cc.verifyUrl(card.record.memo) : null,
+      contractId,
+      mpcContract: config.mpcContract,
+      name: order?.card_name ?? catalog?.itemName ?? null,
+      image: mint ? d.cc.imageUrl(mint, 800) : null,
+      thumb: mint ? d.cc.imageUrl(mint, 320) : null,
+      offer: offer?.available ? { amountUnits: offer.amountUnits, expiresAt: offer.expiresAt } : null,
+      mintedAt: order?.created_at ?? null,
+    };
+  };
+
   const routes: [string, RegExp, (m: RegExpMatchArray, b: any) => Promise<unknown>][] = [
     ["GET", /^\/health$/, async () => ({ ok: true, network: config.network, contract: contractId, treasury: d.chain.treasury.toBase58(), checkout: d.checkout.name, mpcContract: config.mpcContract, serviceFeeBps: config.serviceFeeBps, defaultPack: CONFIGS[config.network].defaultPack, nearRpcs: [NETWORKS[config.network].rpc, ...NETWORKS[config.network].rpcFallbacks], testPay: Boolean(funder) })],
     ["GET", /^\/gallery$/, async () => {
@@ -55,8 +86,32 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     ["GET", /^\/card-image\/([1-9A-HJ-NP-Za-km-z]{32,44})$/, async (m) => ({ image: d.cc.imageUrl(m[1], 800) })],
     ["GET", /^\/owners\/([^/]+)\/cards$/, async (m) => d.contract.tokensOf(decodeURIComponent(m[1]))],
     ["GET", /^\/packs$/, async () => {
-      const list = await d.cc.machines();
-      return list.map((m) => ({ code: m.code, name: neutralPackName(m.price), price: m.price, odds: m.odds, expectedValue: m.ev, buybackPct: m.instantBuyback }));
+      // One pack per price. Prefer the standard machine at that price, then the best expected value.
+      const best = new Map<number, Awaited<ReturnType<typeof d.cc.machines>>[number]>();
+      const score = (m: { code: string; ev: number | null }) => (m.code.startsWith("pokemon_") ? 1e9 : 0) + (m.ev ?? 0);
+      for (const m of await d.cc.machines()) {
+        if (!m.ev || !m.price || m.price % 1 !== 0) continue;
+        const cur = best.get(m.price);
+        if (!cur || score(m) > score(cur)) best.set(m.price, m);
+      }
+      return [...best.values()].sort((a, b) => a.price - b.price).map(packView);
+    }],
+    ["GET", /^\/packs\/([A-Za-z0-9_-]+)$/, async (m) => {
+      const machine = await d.cc.machine(m[1]);
+      const recent = gallery.pulls.filter((p) => p.packType === m[1]).slice(0, 12);
+      return { ...packView(machine), recent: recent.length >= 4 ? recent : gallery.pulls.slice(0, 12), recentIsFromThisPack: recent.length >= 4 };
+    }],
+    ["GET", /^\/owners\/([^/]+)\/dashboard$/, async (m) => {
+      const account = decodeURIComponent(m[1]);
+      const ids = await d.contract.tokensOf(account).catch(() => [] as string[]);
+      const cards = (await Promise.all(ids.slice(0, 60).map((id) => cardView(id).catch(() => null)))).filter((c) => c !== null);
+      const orders = d.db.ordersByBuyer(account);
+      const ops = d.db.opsByActor(account);
+      const activity = [
+        ...orders.map((o) => ({ kind: "order", at: o.created_at, state: o.state, tokenId: o.token_id, name: o.card_name, rarity: o.rarity, packPriceUnits: o.price_units, tx: o.buy_sig, orderId: o.id })),
+        ...ops.filter((o) => o.state === "sent").map((o) => ({ kind: o.kind, at: o.created_at, state: o.state, tokenId: o.token_id, detail: JSON.parse(o.detail), tx: o.tx_sig })),
+      ].sort((a, b) => b.at - a.at).slice(0, 40);
+      return { account, cards, active: orders.filter((o) => ["awaiting_payment", "paid", "minted", "purchased", "needs_attention"].includes(o.state)).map((o) => ({ orderId: o.id, state: o.state, status: o.checkout_status, packType: o.pack_type, priceUnits: o.price_units, createdAt: o.created_at, lastError: o.last_error })), activity };
     }],
     ["GET", /^\/pay-assets$/, async () => (await d.checkout.tokens()).filter((t) => !SMALL_SWAPS_BLOCKED.has(t.blockchain) && (config.network !== "testnet" || t.assetId === `nep141:${TESTNET_USDC}`)).map((t) => ({ assetId: t.assetId, symbol: t.symbol, chain: t.blockchain, decimals: t.decimals, price: t.price }))],
     ["POST", /^\/orders$/, async (_m, b) => {
@@ -83,14 +138,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
       await d.checkout.submitDeposit(b.txHash, decodeURIComponent(m[1]), b.memo);
       return { ok: true };
     }],
-    ["GET", /^\/cards\/([^/]+)$/, async (m) => {
-      const card = await d.contract.getCard(m[1]);
-      if (!card) throw Object.assign(new Error("unknown token"), { status: 404 });
-      const address = await d.chain.cardAddress(m[1]);
-      const holder = card.record.card_mint ? (await d.chain.assetOwner(card.record.card_mint)).owner : null;
-      const proceeds = await d.chain.tokenBalance(address, config.ccPaymentMint);
-      return { ...card, solanaAddress: address, holder, heldByToken: holder === address, proceedsUnits: proceeds.toString(), verifyUrl: card.record.memo ? d.cc.verifyUrl(card.record.memo) : null, contractId, mpcContract: config.mpcContract };
-    }],
+    ["GET", /^\/cards\/([^/]+)$/, async (m) => cardView(m[1])],
     ["POST", /^\/cards\/([^/]+)\/sellback$/, async (m, b) => {
       need(b, "actor");
       return ops.prepareSellback(m[1], b.actor);
@@ -136,6 +184,10 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     gallery = { at: Date.now(), pulls };
   };
   await refreshGallery().catch((e) => d.log(`gallery: ${e}`));
+  // Testnet only: test payments settle in a different mint from the one Collector Crypt's devnet charges, so the treasury
+  // only ever drains there. On mainnet the buyer's payment funds the purchase and d.topUpTestTreasury doesn't exist.
+  const topUp = () => void d.topUpTestTreasury?.().catch((e) => d.log(`treasury top-up: ${e}`));
+  topUp();
   await new Promise<void>((r) => server.listen(port, r));
   d.log(`listening on :${port} (${config.network}, contract ${contractId}, checkout ${d.checkout.name})`);
 
@@ -143,7 +195,8 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
   const tick = setInterval(() => void pipeline.advanceAll().catch((e) => d.log(`advance: ${e}`)), 5_000);
   const wall = setInterval(() => void refreshGallery().catch((e) => d.log(`gallery: ${e}`)), 5 * 60_000);
   const rec = setInterval(() => void reconcile(d).then((f) => f.length && d.log(`reconcile: ${JSON.stringify(f)}`), (e) => d.log(`reconcile: ${e}`)), 60_000);
-  return { server, deps: d, stop: () => { clearInterval(tick); clearInterval(rec); clearInterval(wall); server.close(); } };
+  const funds = setInterval(topUp, 60_000);
+  return { server, deps: d, stop: () => { clearInterval(tick); clearInterval(rec); clearInterval(wall); clearInterval(funds); server.close(); } };
 }
 
 if (process.argv[1]?.endsWith("server.ts")) await startServer();

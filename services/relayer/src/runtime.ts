@@ -1,7 +1,7 @@
 // Wires the relayer to real networks.
-import { Connection } from "@solana/web3.js";
+import { Connection, PublicKey, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import type { Account } from "near-api-js";
-import { CcClient, loadConfig, MintentContract, type MintentConfig } from "@mintent/shared";
+import { CcClient, confirm, faucetAirdropIx, loadConfig, MintentContract, type MintentConfig } from "@mintent/shared";
 import { createBackend } from "@mintent/checkout";
 import { Db } from "./db.js";
 import { SolanaChain, type Deps, type Sponsor } from "./deps.js";
@@ -11,6 +11,8 @@ import { SolanaChain, type Deps, type Sponsor } from "./deps.js";
 // So the float isn't spent: only the burn is, a fraction of this per signature.
 const CARD_SIGN_GAS = 50_000_000_000_000n; // 50 Tgas, what the app attaches to sign_for_card
 const PESSIMISTIC_MULTIPLIER = 10n;
+const TEST_TREASURY_MIN = 100_000_000n; // 100 USDC-Dev (devnet faucet token)
+const TEST_TREASURY_TOP_UP = 200_000_000n;
 export function sponsorAmounts(gasPriceYocto: bigint): { min: bigint; topUp: bigint } {
   const needed = CARD_SIGN_GAS * gasPriceYocto * PESSIMISTIC_MULTIPLIER;
   return { min: (needed * 12n) / 10n, topUp: needed * 2n };
@@ -53,15 +55,38 @@ export async function warmImages(urls: string[]): Promise<void> {
 export async function createRuntime(opts: { contractId: string; relayer: Account; dbPath?: string; config?: MintentConfig; oneClickJwt?: string; log?: Deps["log"] }): Promise<Deps & { contract: MintentContract; chain: SolanaChain }> {
   const config = opts.config ?? loadConfig();
   const conn = new Connection(config.solanaRpc, "confirmed");
+  const contract = new MintentContract(opts.contractId, opts.relayer);
+  const chain = await SolanaChain.create(conn, config.network, opts.contractId);
+  const log = opts.log ?? ((m: string) => console.log(`[relayer] ${m}`));
+  let toppingUp = false;
+  const topUpTestTreasury = async () => {
+    if (toppingUp || (await chain.tokenBalance(chain.treasury.toBase58(), config.ccPaymentMint)) >= TEST_TREASURY_MIN) return;
+    toppingUp = true;
+    try {
+      const ix = await faucetAirdropIx(new PublicKey(config.ccPaymentMint), chain.treasury, TEST_TREASURY_TOP_UP);
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        const { blockhash } = await conn.getLatestBlockhash("confirmed");
+        const tx = new VersionedTransaction(new TransactionMessage({ payerKey: chain.treasury, recentBlockhash: blockhash, instructions: [ix] }).compileToV0Message());
+        tx.addSignature(chain.treasury, await contract.signForTreasury(tx.message.serialize()));
+        if (!(await conn.isBlockhashValid(blockhash, { commitment: "processed" })).value) continue; // MPC signing outlasted it
+        log(`treasury topped up with test USDC-Dev: ${await confirm(conn, await conn.sendRawTransaction(tx.serialize()))}`);
+        return;
+      }
+      throw new Error("MPC signing keeps outlasting the blockhash");
+    } finally {
+      toppingUp = false;
+    }
+  };
   return {
     config,
     db: new Db(opts.dbPath ?? ":memory:"),
     checkout: createBackend(config.oneClickBase, opts.oneClickJwt),
     cc: new CcClient(config.ccGacha, config.ccApi),
-    contract: new MintentContract(opts.contractId, opts.relayer),
-    chain: await SolanaChain.create(conn, config.network, opts.contractId),
+    contract,
+    chain,
     sponsor: nearSponsor(opts.relayer),
     warmImages,
-    log: opts.log ?? ((m) => console.log(`[relayer] ${m}`)),
+    ...(config.network === "testnet" ? { topUpTestTreasury } : {}),
+    log,
   };
 }

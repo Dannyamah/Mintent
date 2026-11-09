@@ -99,6 +99,14 @@ export class Db {
     return this.db.prepare("SELECT * FROM orders ORDER BY created_at DESC").all() as unknown as Order[];
   }
 
+  ordersByBuyer(buyer: string): Order[] {
+    return this.db.prepare("SELECT * FROM orders WHERE buyer = ? ORDER BY created_at DESC").all(buyer) as unknown as Order[];
+  }
+
+  orderByToken(tokenId: string): Order | undefined {
+    return this.db.prepare("SELECT * FROM orders WHERE token_id = ?").get(tokenId) as unknown as Order | undefined;
+  }
+
   openOrders(): Order[] {
     return this.db.prepare("SELECT * FROM orders WHERE state IN ('awaiting_payment','paid','minted','purchased')").all() as unknown as Order[];
   }
@@ -118,6 +126,10 @@ export class Db {
 
   op(id: string): Op | undefined {
     return this.db.prepare("SELECT * FROM ops WHERE id = ?").get(id) as unknown as Op | undefined;
+  }
+
+  opsByActor(actor: string): Op[] {
+    return this.db.prepare("SELECT * FROM ops WHERE actor = ? ORDER BY created_at DESC").all(actor) as unknown as Op[];
   }
 
   activeOps(): Op[] {
