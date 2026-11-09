@@ -22,7 +22,7 @@ Last updated: **8 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 | Contract hardening | **Done 8 Nov.** Signing policy and transfer locks after the pre-sign attack was proven (D-015, `THREAT-MODEL.md`). 46 unit tests and a sandbox run. |
 | `packages/checkout`, `services/relayer` | **Done 8 Nov.** 7 + 31 tests. HTTP API smoke-tested. |
 | `pnpm demo:testnet` | **Passes from nothing: 23/23 checks in 6.3 min on real networks** (`EVIDENCE.md`). |
-| Web app | **Working on testnet, 8 Nov:** rebuilt with motion and depth (D-025): gallery home page, pack shop and detail pages, checkout, tap-to-tear reveal, dashboard, card page with proof panel, transfer, sell back, withdraw, security page. Two-user browser test passes on real networks, 18 of 18 (`apps/web/e2e/flow.mjs`). Privy email sign-in added 9 Nov (D-026); a real login still has to be run. Open for mainnet prep: no retry path for `needs_attention` orders; check real sell-back availability. |
+| Web app | **Working on testnet, 8 Nov:** rebuilt with motion and depth (D-025): gallery home page, pack shop and detail pages, checkout, tap-to-tear reveal, dashboard, card page with proof panel, transfer, sell back, withdraw, security page. Two-user browser test passes on real networks, 18 of 18 (`apps/web/e2e/flow.mjs`). Privy email sign-in works on testnet with live signing, 9 Nov (D-026). Open for mainnet prep: no retry path for `needs_attention` orders; check real sell-back availability. |
 | Mainnet | **Nothing run yet.** Dry quotes only. |
 | Blocker 2 (redemption) | **Decided (D-022):** withdraw the card to the owner's own Solana wallet, then redeem on Collector Crypt's site. No partnership needed. |
 | Blocker 4 (pricing) | **Verified.** |

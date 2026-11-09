@@ -16,7 +16,8 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 - **Decision:** the web app calls Privy's SDK directly (`@privy-io/react-auth` 3.51.3, `createWallet({ chainType: "near" })`, `useSignRawHash`). This replaces the "via near-connect" part of D-005.
 - **Why:** NEAR's guide recommends direct Privy for a web-style app with social login. near-connect would add a wallet manifest, a separate signing page and a client ID, and its only gain is third-party wallets, which Mintent's buyers don't need.
 - **Impact:** sign-in is email now. Passkey needs enabling in the Privy dashboard, then adding to `loginMethods`. Keys are held by Privy, and users can export them from the account menu. The test account stays on testnet only and is refused on mainnet. The SDK loads as a separate 399 kB (gzipped) chunk, so it doesn't delay the shop.
-- **Status:** Adopted. Not yet proven with a real login (see `EVIDENCE.md`).
+- **Before mainnet:** turn off Privy test accounts, because their fixed login code would let anyone sign in to them, and restrict allowed domains.
+- **Status:** Adopted. Proven on testnet with a real login and live signing (see `EVIDENCE.md`).
 
 ### D-025 · 8 Nov · Frontend rebuilt: dashboard, pack ceremony, real numbers only; test treasury refills itself
 

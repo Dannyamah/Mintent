@@ -60,12 +60,18 @@ On the unprotected contract, `app2.mintent-dev-mw21w9ki.testnet`, the seller sig
 
 `apps/web/e2e/shots.mjs` checks each page at four screen sizes for console errors, sideways scrolling, small touch targets and whether the reveal's actions are on screen.
 
+## Privy sign-in with a real login, 9 Nov
+
+`apps/web/e2e/privy.mjs` drives real Chrome with a Privy test account, on the same test networks. Privy created the implicit NEAR account `9ed1b724cc85b4b7f30fd32bf8868aee0d6d177d4b3b0a259547565329cf631a`, and it stayed the same after a reload and after signing out and back in. Picking a pack while signed out opened checkout by itself after sign-in. That account bought token 11, then sold it back for $12.75 and withdrew the proceeds, in 2 minutes. Privy's key signed both NEAR transactions, and the account's on-chain nonce agrees. `pnpm verify:pull mintent-con-mw7mmwr5.testnet 11` passes from public data alone: the owner is that account, and the card went back to Collector Crypt.
+
+`apps/web/e2e/signer.test.mts` checks offline that the signer's signature is identical to a local key's for the same transaction.
+
 ## What has not been shown
 
 - **No mainnet run.** Collector Crypt's mainnet purchase transaction hasn't been inspected by `assertSafePackTx` yet, and a mainnet sell-back hasn't been built.
 - **Payment on testnet is not spent on the pack.** Tidepool's test USDC isn't the token Collector Crypt's devnet charges, so the treasury pays from pre-stocked USDC-Dev. On mainnet, both are real USDC.
 - **Sell-back timing on mainnet.** Devnet offered a 30-day window, Collector Crypt's docs say 72 hours, and 8 of 8 recent mainnet pulls returned `available: false` in a read-only check on 8 Nov. The cause is unknown; those cards may already have been sold or withdrawn.
 - **Paying from other chains** has been quoted, not executed. The test payment came from NEAR USDC.
-- **A real Privy login.** The login window opens in a real browser (`apps/web/e2e/privy.mjs`), and `apps/web/e2e/signer.test.mts` shows the signer matches a local key's signature offline. Signing in, creating the NEAR account and signing a live transaction with Privy's key haven't been run.
+- **Privy on mainnet, and passkey.** Privy has only run on testnet with email. Its key export window opens, but the screen showing the key itself hasn't been checked.
 - **A real payment through the app** from another chain. On testnet the app's "Pay with test USDC" button pays from a funded account.
 - **Redemption of a physical card** is untested. The path is to withdraw the card to your own Solana wallet, then redeem on Collector Crypt's site as any holder can.
