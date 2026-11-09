@@ -23,7 +23,7 @@ Last updated: **9 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 | `packages/checkout`, `services/relayer` | **Done 8 Nov.** 7 + 31 tests. HTTP API smoke-tested. |
 | `pnpm demo:testnet` | **Passes from nothing: 23/23 checks in 6.3 min on real networks** (`EVIDENCE.md`). |
 | Web app | **Working on testnet, 8 Nov:** rebuilt with motion and depth (D-025): gallery home page, pack shop and detail pages, checkout, tap-to-tear reveal, dashboard, card page with proof panel, transfer, sell back, withdraw, security page. Two-user browser test passes on real networks, 18 of 18 (`apps/web/e2e/flow.mjs`). Privy email sign-in works on testnet with live signing, 9 Nov (D-026). Email or wallet sign-in, any-chain payment and cash-out to any chain work on test networks (D-028). Stuck paid orders recover by themselves (D-027). The app checks each message before signing, and payment can be proven without a reported hash (D-029). Open for mainnet prep: check real sell-back availability. |
-| Mainnet | **Nothing run yet.** Dry quotes only. |
+| Mainnet | **Contract deployed 9 Nov at `mintent.xinju.near` (D-030).** Needs SOL, nonce accounts and the USDC mint. No purchases yet. |
 | Blocker 2 (redemption) | **Decided (D-022):** withdraw the card to the owner's own Solana wallet, then redeem on Collector Crypt's site. No partnership needed. |
 | Blocker 4 (pricing) | **Verified.** |
 

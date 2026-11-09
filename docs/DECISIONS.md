@@ -16,7 +16,9 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 - **Accounts (you created them, 9 Nov):** contract `mintent.xinju.near` (3.5 NEAR), relayer `relayer.xinju.near` (1.5 NEAR), both funded from `xinju.near`. Their keys are in `~/.near-credentials/mainnet/` and match the chain. The contract isn't deployed yet.
 - **Addresses these names lead to:** treasury `A5SBNb1f6ECxXLWDoHk2onu6YdNuSjdeANAxYXqJj1k5`. Derived, so they change if the contract's name changes.
 - **Purchase check:** `scripts/src/mainnet-pack-check.ts` got a real unsigned $25 purchase from Collector Crypt, and `assertSafePackTx` passed it. Nothing was signed or sent. The transaction has Collector Crypt as fee payer, with no lookup tables.
-- **Status:** Adopted. Deploying the contract still needs your approval.
+- **Deployed (your approval, 9 Nov):** the same code as the tested testnet contract, hash `CaVHH4mYkqTBG2BC2Tn2ih3ie8KKAdT8YdoYNx2aBwsS`, deploy tx `AqCcPnmiodXsCZ5hxMhBUSTJ2etBHZbstdLjxuoL9eNm`, init tx `G8vaWRqVgePM4LhVRFnYfwbjFzGhnYY7RAa9mYAYpPwZ`. `owner_id` is `xinju.near`, relayer is `relayer.xinju.near`.
+- **Still to do:** the owner must add the USDC mint and nonce accounts, and the treasury needs SOL. Removing the full-access key is still your decision, and hasn't been done.
+- **Status:** Adopted.
 
 ### D-029 · 9 Nov · The app checks every message before signing; payment proof no longer needs a reported hash; mainnet demo uses the $25 pack
 
