@@ -74,12 +74,59 @@ On 8 Nov, token 8's order stalled because the test treasury had run out, and it 
 
 A full two-user run (buy, sell back, withdraw) used 0.0015 devnet SOL from the treasury, measured on 9 Nov. Treat that as a rough guide for mainnet, where fees and accounts may differ.
 
+## Any-chain payment and cash-out, 9 Nov
+
+`apps/web/e2e/anychain.mjs` drives the app's real screens on real test networks: 15 checks in 7.3 minutes.
+
+| Step | What happened | Check it |
+| --- | --- | --- |
+| Pay from another chain | A throwaway wallet on Base Sepolia sent 25.56898 test USDC to the checkout's deposit address. Tidepool swapped it, the treasury received it on Solana, and the relayer proved that on-chain. Token 13 was delivered to the buyer's NEAR account, not to the paying wallet | [Payment on Base Sepolia](https://sepolia.basescan.org/tx/0x4c49ae3b52cba9df6d1331d922edb7bbe4b9872449d4a038eda794dfbdaa7ce7), [settlement on Solana](https://explorer.solana.com/tx/5bX8ZEJBapiviMnGdubCSNrKHdoLy8aevAzhR935H992xh5d3zXXHT5RFaqKdXEZtUfHC8cYemX9DnG3R2tYTtto?cluster=devnet) |
+| Cash out to NEAR | Token 13's $15.30 sell-back became 15.26022 USDC on NEAR. The recipient's balance rose by exactly that, read from NEAR RPC | `ft_balance_of` on `usdc.tidepool-sandbox.testnet` |
+| Cash out to Base | Token 14's $15.30 became 15.26022 USDC on Base Sepolia, at a fresh address that held nothing before, read from Base RPC | [`0x55528b52ab7000887f0bf1543c5b878c2cae66ca`](https://sepolia.basescan.org/address/0x55528b52ab7000887f0bf1543c5b878c2cae66ca) |
+
+`apps/web/e2e/signin.mjs` covers sign-in against Privy's real service. A throwaway Ethereum wallet, injected the way MetaMask injects itself, signed Privy's real sign-in message, and Privy created NEAR account `32d2ac86…13f2`. The session survives a reload, the checkout offers that wallet as the refund address on a matching chain, a Bitcoin address is refused for a Base refund, and sign-out works for wallet, email and test accounts.
+
+`scripts/src/mainnet-dry-check.ts` has read-only mainnet quotes for cashing out $100 of USDC from Solana (9 Nov). No money moves:
+
+| Receive | About | Estimated time |
+| --- | --- | --- |
+| USDC on NEAR | $99.94 | 20 s |
+| USDC on Base | $99.94 | 22 s |
+| USDC on Arbitrum | $99.93 | 19 s |
+| SOL | $99.99 | 17 s |
+| ETH | $99.88 | 27 s |
+| USDC on Ethereum | $99.64 | 27 s |
+| DOGE | $99.67 | 162 s |
+| BTC | $98.51 | 465 s |
+
+An XRP quote failed with a 400 from 1Click, possibly because of the placeholder address used for it. Not investigated further. If it happens to a customer, they see a plain error before anything moves.
+
+## A compromised relayer against the real app, 9 Nov
+
+`apps/web/e2e/tamper.mjs` buys a real pack on test networks, then alters the browser's traffic to the relayer, so the prepared message sends the card to an address the owner never chose (token 16). The app refused and said why. **No transaction was sent to NEAR, the NFT stayed unlocked and the card didn't move.** The same withdrawal, unaltered, then went through the same check and the card reached the owner's address.
+
+`apps/web/e2e/verify.test.mts` runs 11 offline tests of the check: swapped destinations, amounts, coins and cards, a card transfer hidden in a USDC transfer, extra steps, other signers and fee payers, foreign nonce accounts, lookup tables, trailing bytes and tampered quotes.
+
+`scripts/src/spike-sellback-binding.ts` simulates tampered sell-backs against Collector Crypt's real devnet program, signing and sending nothing:
+
+| Tampering | Result |
+| --- | --- |
+| None | Accepted |
+| Card sent to another owner, in both instructions | Rejected: `DestinationNotAllowed` |
+| Card sent elsewhere, payment unchanged | Rejected: `AssetNotDelivered` |
+| Lower price | Rejected: `Ed25519MessageMismatch` |
+| Money paid to another token account | Rejected: `AccountNotInitialized` (that account didn't exist, so the app checks this itself) |
+
+## Proving payment without a reported hash, 9 Nov
+
+`scripts/src/check-settlement-search.ts` runs the fallback search, read-only, against the real devnet treasury. It found the right transaction for 6 of 6 recent paid orders (tokens 10 to 15). `services/relayer/test/relayer.test.ts` covers the refusals: one transaction can't pay for two orders, too small or too old proves nothing, an order 1Click hasn't confirmed isn't completed by someone else's transaction, and an RPC failure isn't proof. **It hasn't run on mainnet.**
+
 ## What has not been shown
 
 - **No mainnet run.** Collector Crypt's mainnet purchase transaction hasn't been inspected by `assertSafePackTx` yet, and a mainnet sell-back hasn't been built.
 - **Payment on testnet is not spent on the pack.** Tidepool's test USDC isn't the token Collector Crypt's devnet charges, so the treasury pays from pre-stocked USDC-Dev. On mainnet, both are real USDC.
 - **Sell-back timing on mainnet.** Devnet offered a 30-day window, Collector Crypt's docs say 72 hours, and 8 of 8 recent mainnet pulls returned `available: false` in a read-only check on 8 Nov. The cause is unknown; those cards may already have been sold or withdrawn.
-- **Paying from other chains** has been quoted, not executed. The test payment came from NEAR USDC.
+- **Any-chain payment and cash-out with real money.** On test networks, payment ran from Base and NEAR, and cash-outs to NEAR and Base. Other chains have been quoted only. The mainnet cash-out, where the NFT's address pays the deposit directly, has only been unit-tested: on testnet the treasury funds the deposit, because sell-back money there is a token Tidepool doesn't accept.
+- **A real wallet extension.** Wallet sign-in used an injected test wallet. Phantom and other Solana wallets aren't tested, and need Solana wallet login turned on in the Privy dashboard.
 - **Privy on mainnet.** Privy has only run on testnet. Its key export window opens, but the screen showing the key itself hasn't been checked.
-- **A real payment through the app** from another chain. On testnet the app's "Pay with test USDC" button pays from a funded account.
 - **Redemption of a physical card** is untested. The path is to withdraw the card to your own Solana wallet, then redeem on Collector Crypt's site as any holder can.

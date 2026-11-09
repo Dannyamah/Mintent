@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { PublicKey, VersionedTransaction, VersionedMessage, type TransactionInstruction } from "@solana/web3.js";
 import { ata, authorizeAndPayIx, coreTransferIx, createAtaIdempotentIx, setComputeUnitLimitIx, transferCheckedIx, verifyEd25519 } from "@mintent/shared";
+import { looksLikeAddress, quoteErrorForCustomer, TERMINAL_STATES, type SwapState } from "@mintent/checkout";
 import type { Op, OpKind } from "./db.js";
 import type { Deps } from "./deps.js";
 
@@ -90,6 +91,66 @@ export class CardOps {
       { destination, amount: amount.toString(), mint: config.ccPaymentMint },
       false,
     );
+  }
+
+  /**
+   * Turn the USDC this NFT holds into any asset on any chain. Mainnet: the NFT's address pays 1Click's deposit address
+   * directly, and a refund comes back to the NFT's address, so it stays with whoever owns the NFT.
+   * Testnet: sell-back money is Collector Crypt's USDC-Dev, which Tidepool doesn't take. It goes to the treasury, and the
+   * treasury funds the deposit in Tidepool's test USDC (advanceCashOuts).
+   */
+  async prepareCashOut(tokenId: string, actor: string, destinationAsset: string, recipient: string): Promise<Op> {
+    const { chain, config, checkout } = this.d;
+    await this.assertOwner(tokenId, actor);
+    const asset = (await checkout.tokens()).find((t) => t.assetId === destinationAsset);
+    if (!asset) throw Object.assign(new Error("that asset can't be paid out"), { status: 400 });
+    if (!looksLikeAddress(asset.blockchain, recipient)) throw Object.assign(new Error(`That doesn't look like a ${asset.blockchain} address.`), { status: 400 });
+    const card = new PublicKey(await chain.cardAddress(tokenId));
+    const mint = new PublicKey(config.ccPaymentMint);
+    const amount = await chain.tokenBalance(card.toBase58(), config.ccPaymentMint);
+    if (amount === 0n) throw Object.assign(new Error("this token holds no proceeds"), { status: 400 });
+
+    const isTest = config.network === "testnet";
+    if (isTest && (await chain.tokenBalance(chain.treasury.toBase58(), config.checkoutMint)) < amount) throw Object.assign(new Error("The test treasury can't cover this cash-out right now."), { status: 503 });
+    const quote = await checkout.payoutQuote({ originAsset: config.checkoutDestinationAsset, destinationAsset, amountIn: amount.toString(), recipient, refundTo: isTest ? chain.treasury.toBase58() : card.toBase58() }).catch((e) => {
+      this.d.log(`cash-out quote failed for ${destinationAsset}: ${e}`);
+      throw Object.assign(new Error(quoteErrorForCustomer(e)), { status: 502 });
+    });
+    if (quote.depositMemo) throw new Error("1Click asked for a memo, which a Solana deposit shouldn't need");
+
+    const payTo = isTest ? chain.treasury : new PublicKey(quote.depositAddress);
+    return this.create(
+      "cash_out",
+      tokenId,
+      actor,
+      [await createAtaIdempotentIx(chain.treasury, payTo, mint), transferCheckedIx(await ata(card, mint), mint, await ata(payTo, mint), card, amount, 6)],
+      { amount: amount.toString(), mint: config.ccPaymentMint, destinationAsset, symbol: asset.symbol, chain: asset.blockchain, decimals: asset.decimals, recipient, depositAddress: quote.depositAddress, amountOut: quote.amountOut, amountOutFormatted: quote.amountOutFormatted, minAmountOut: quote.minAmountOut, deadline: quote.deadline, timeEstimateSeconds: quote.timeEstimateSeconds, quote: quote.raw },
+      false,
+    );
+  }
+
+  /** Move landed cash-outs along. Safe to run repeatedly: each step is recorded, and a step that fails runs again next tick. */
+  async advanceCashOuts(): Promise<void> {
+    const { db, checkout, log } = this.d;
+    for (const op of db.openCashOuts()) {
+      try {
+        const detail = JSON.parse(op.detail) as { depositAddress: string; amount: string };
+        let deposit = op.swap_deposit_tx;
+        if (!deposit) {
+          deposit = this.d.fundTestCashOut ? await this.d.fundTestCashOut(detail.depositAddress, BigInt(detail.amount)) : op.tx_sig!;
+          db.updateOp(op.id, { swap_deposit_tx: deposit, swap_status: "PENDING_DEPOSIT" });
+          // Only speeds up detection, so a failure here doesn't matter.
+          await checkout.submitDeposit(deposit, detail.depositAddress).catch(() => undefined);
+        }
+        const status = await checkout.status(detail.depositAddress);
+        if (status.status === op.swap_status) continue;
+        const dest = status.swapDetails?.destinationChainTxHashes?.[0]?.hash ?? null;
+        db.updateOp(op.id, { swap_status: status.status, swap_amount_out: status.swapDetails?.amountOut ?? null, swap_dest_tx: dest });
+        if (TERMINAL_STATES.includes(status.status as SwapState)) log(`op ${op.id} cash_out ${status.status}: ${dest ?? status.swapDetails?.refundReason ?? ""}`);
+      } catch (e) {
+        log(`op ${op.id} cash_out: ${e instanceof Error ? e.message : e}`);
+      }
+    }
   }
 
   /** The owner has signed. Check everything again, co-sign, broadcast. */

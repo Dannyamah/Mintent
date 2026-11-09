@@ -30,6 +30,13 @@ We proved the main attack on a real deployment before fixing it. On the unprotec
 | 13 | The relayer falsely records `Released` or `record_exit_failed` | It can corrupt the *record* and clear an exit early, which is why `verify:pull` reads the real holder from Solana. It still can't move the card |
 | 14 | A front end or function-call key signs silently | `sign_for_card` needs a deposit, which function-call access keys can't attach by default |
 
+**Limits of row 20's check:**
+
+- **It protects the honest app, not a replaced one.** Whoever hosts the website could serve different code. Running the app from source avoids that.
+- **BTC cash-outs on mainnet.** 1Click's SDK rejects its own BTC quotes, so a BTC cash-out's quote is compared with what the owner chose, but its signature isn't checked. A compromised relayer could invent one. Other coins require 1Click's signature.
+- **Testnet cash-outs.** Tidepool's quotes aren't signed, and the treasury funds the swap, so the recipient can't be checked the same way. Test money only.
+- **Sell-back terms.** The app relies on Collector Crypt's program to reject a tampered destination or price. That was confirmed by simulating on devnet (`scripts/src/spike-sellback-binding.ts`), and hasn't been repeated on mainnet.
+
 ## What can go wrong for Mintent
 
 | # | Threat | What stops it |
@@ -39,6 +46,7 @@ We proved the main attack on a real deployment before fixing it. On the unprotec
 | 17 | A crash causes a double purchase | The purchase's signature is saved before broadcast, and its status is checked before any new pack is generated |
 | 18 | A replayed order mints twice | `mint_pack` refuses a repeated `order_id` |
 | 19 | The relayer's key leaks | It can spend the treasury's balance, because `sign_for_treasury` isn't policy-checked. It can't touch cards. Mitigation: keep the treasury topped up only to what's in flight |
+| 20 | The relayer builds a message that does something other than what the owner asked: sends USDC elsewhere, or moves the card, when the owner approved a different action | **Closed in the app, 9 Nov.** Before signing, the owner's app parses the message and requires exactly the steps for that action, with the destination the owner typed, this NFT's card and address, and Mintent's own nonce and fee payer. It reads those from NEAR through RPCs it pins, not from the relayer. On a mainnet build the contract is fixed at build time. Tried live with altered traffic: refused, nothing signed (`apps/web/e2e/tamper.mjs`). Remaining limits are below. |
 
 ## Trust assumptions we're stating plainly
 

@@ -3,7 +3,7 @@
 import { PublicKey, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import { assertSafePackTx, verifyEd25519 } from "@mintent/shared";
-import { verifySettlement, withServiceFee, type CheckoutQuote } from "@mintent/checkout";
+import { looksLikeAddress, quoteErrorForCustomer, verifySettlement, withServiceFee, type CheckoutQuote } from "@mintent/checkout";
 import type { Order } from "./db.js";
 import type { Deps } from "./deps.js";
 
@@ -50,6 +50,12 @@ export class OrderPipeline {
       log(`REFUSING ORDERS: treasury ${chain.treasury.toBase58()} holds ${sol} lamports, needs ${MIN_TREASURY_LAMPORTS}. Add SOL.`);
       throw Object.assign(new Error("Mintent can't take new orders right now. You haven't been charged. Please try again later."), { status: 503 });
     }
+    const payWith = (await checkout.tokens()).find((t) => t.assetId === input.originAsset);
+    if (!payWith) throw Object.assign(new Error("That coin can't be used to pay."), { status: 400 });
+    // A refund sent to the wrong kind of address could be lost, so catch it before the customer has paid anything.
+    if ((input.refundType ?? "ORIGIN_CHAIN") === "ORIGIN_CHAIN" && !looksLikeAddress(payWith.blockchain, input.refundTo.trim())) {
+      throw Object.assign(new Error(`That doesn't look like a ${payWith.blockchain} address. Refunds go back to this address, so please check it.`), { status: 400 });
+    }
     const machine = await cc.machine(input.packType);
     const price = BigInt(Math.round(machine.price)) * USDC_DECIMALS;
     const amountOut = withServiceFee(price, config.serviceFeeBps);
@@ -58,10 +64,13 @@ export class OrderPipeline {
       destinationAsset: config.checkoutDestinationAsset,
       amountOut: amountOut.toString(),
       recipient: chain.treasury.toBase58(),
-      refundTo: input.refundTo,
+      refundTo: input.refundTo.trim(),
       depositType: input.depositType,
       refundType: input.refundType,
       simulate: input.simulate,
+    }).catch((e) => {
+      log(`quote failed for ${input.originAsset}: ${e}`);
+      throw Object.assign(new Error(quoteErrorForCustomer(e)), { status: 502 });
     });
     const order = db.insertOrder({
       id: quote.depositAddress,
@@ -71,7 +80,7 @@ export class OrderPipeline {
       amount_out: amountOut.toString(),
       amount_in: quote.amountIn,
       origin_asset: input.originAsset,
-      refund_to: input.refundTo,
+      refund_to: input.refundTo.trim(),
       deposit_memo: quote.depositMemo ?? null,
       deadline: quote.deadline,
     });
@@ -172,12 +181,17 @@ export class OrderPipeline {
   }
 
   private async provenSettlement(o: Order, hashes: { hash: string }[]): Promise<string> {
-    const { chain, config, db } = this.d;
+    const { chain, config, db, log } = this.d;
     const treasury = chain.treasury.toBase58();
+    const used = new Set(db.orders().filter((x) => x.id !== o.id && x.settle_tx).map((x) => x.settle_tx));
+    let reused: string | null = null;
     let total = 0n;
     let first: string | null = null;
     for (const { hash } of hashes) {
-      if (db.orders().some((x) => x.settle_tx === hash && x.id !== o.id)) throw new Error(`settlement tx ${hash} was already used by another order`);
+      if (used.has(hash)) {
+        reused = hash;
+        continue;
+      }
       // An RPC hiccup means "not proven yet", never "proven".
       const delta = await chain.tokenDeltaInTx(hash, treasury, config.checkoutMint).catch(() => null);
       if (delta !== null && delta > 0n) {
@@ -185,12 +199,26 @@ export class OrderPipeline {
         first ??= hash;
       }
     }
-    if (!first || total < BigInt(o.amount_out)) {
-      // Fail closed and retry: destination data can lag SUCCESS. A human looks if it never shows up.
-      if (o.attempts + 1 >= MAX_ATTEMPTS_AFTER_PAYMENT) db.updateOrder(o.id, { state: "needs_attention", checkout_status: "SUCCESS" });
-      throw new Error(`on-chain settlement not proven yet: treasury received ${total} of ${o.amount_out} in ${hashes.length} tx(s)`);
+    if (first && total >= BigInt(o.amount_out)) return first;
+
+    // Mainnet swaps are confidential, and 1Click's docs don't promise the payout's hash in the status. So also look at what really
+    // reached the treasury: one transaction, since this order began, for at least the full amount, that no other order has claimed.
+    // settle_tx is unique, so each transaction pays for one order at most, however many orders are waiting.
+    const since = o.created_at - 60_000;
+    const recent = await chain.recentTokenTxs(treasury, config.checkoutMint).catch(() => []);
+    for (const { sig, atMs } of recent) {
+      if (atMs < since || used.has(sig)) continue;
+      const delta = await chain.tokenDeltaInTx(sig, treasury, config.checkoutMint).catch(() => null);
+      if (delta !== null && delta >= BigInt(o.amount_out)) {
+        log(`order ${o.id}: settlement found on-chain without a reported hash: ${sig}`);
+        return sig;
+      }
     }
-    return first;
+
+    // Fail closed and retry: destination data can lag SUCCESS. A human looks if it never shows up.
+    if (o.attempts + 1 >= MAX_ATTEMPTS_AFTER_PAYMENT) db.updateOrder(o.id, { state: "needs_attention", checkout_status: "SUCCESS" });
+    if (reused) throw new Error(`settlement tx ${reused} was already used by another order`);
+    throw new Error(`on-chain settlement not proven yet: treasury received ${total} of ${o.amount_out} in ${hashes.length} tx(s)`);
   }
 
   private async mint(o: Order): Promise<Order> {

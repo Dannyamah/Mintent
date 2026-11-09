@@ -22,7 +22,7 @@ Last updated: **9 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 | Contract hardening | **Done 8 Nov.** Signing policy and transfer locks after the pre-sign attack was proven (D-015, `THREAT-MODEL.md`). 46 unit tests and a sandbox run. |
 | `packages/checkout`, `services/relayer` | **Done 8 Nov.** 7 + 31 tests. HTTP API smoke-tested. |
 | `pnpm demo:testnet` | **Passes from nothing: 23/23 checks in 6.3 min on real networks** (`EVIDENCE.md`). |
-| Web app | **Working on testnet, 8 Nov:** rebuilt with motion and depth (D-025): gallery home page, pack shop and detail pages, checkout, tap-to-tear reveal, dashboard, card page with proof panel, transfer, sell back, withdraw, security page. Two-user browser test passes on real networks, 18 of 18 (`apps/web/e2e/flow.mjs`). Privy email sign-in works on testnet with live signing, 9 Nov (D-026). Stuck paid orders now recover by themselves (D-027). Open for mainnet prep: check real sell-back availability. |
+| Web app | **Working on testnet, 8 Nov:** rebuilt with motion and depth (D-025): gallery home page, pack shop and detail pages, checkout, tap-to-tear reveal, dashboard, card page with proof panel, transfer, sell back, withdraw, security page. Two-user browser test passes on real networks, 18 of 18 (`apps/web/e2e/flow.mjs`). Privy email sign-in works on testnet with live signing, 9 Nov (D-026). Email or wallet sign-in, any-chain payment and cash-out to any chain work on test networks (D-028). Stuck paid orders recover by themselves (D-027). The app checks each message before signing, and payment can be proven without a reported hash (D-029). Open for mainnet prep: check real sell-back availability. |
 | Mainnet | **Nothing run yet.** Dry quotes only. |
 | Blocker 2 (redemption) | **Decided (D-022):** withdraw the card to the owner's own Solana wallet, then redeem on Collector Crypt's site. No partnership needed. |
 | Blocker 4 (pricing) | **Verified.** |
@@ -56,7 +56,7 @@ Last updated: **9 Nov 2026**. All dates and times are UTC. Anything marked **(ap
    - Idempotent per `order_id`, with a retry when the blockhash expires.
 4. **One exit that proves ownership moves with the token:** transfer the NEP-171 token; the **new** owner sells the card back (CC buyback or a `cc_buyback` quote); the old owner's signing attempt fails.
 5. **Withdraw to my own Solana wallet:** the owner moves the card out, which releases the token. This is how a card is redeemed for the physical slab (on Collector Crypt's site) or listed on a marketplace.
-6. **Web app:** Privy email sign-in, pack shop, checkout (pay from any chain), the opening reveal, a card page with a proof panel, transfer and sell back.
+6. **Web app:** Privy email or wallet sign-in, pack shop, checkout (pay from any chain), the opening reveal, a card page with a proof panel, transfer and sell back.
 7. **AI-judge path:**
    - `pnpm demo:testnet` runs NEAR testnet, a Tidepool checkout, Solana devnet and CC devnet end to end, headless. It falls back to fixtures if Tidepool `/v0/health` or CC devnet is down.
    - `pnpm verify:pull <token_id>` re-checks every claim.
@@ -67,7 +67,7 @@ Last updated: **9 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 
 2. A **"pay from any chain" checkout demo page for a non-Mintent merchant**, reusing `packages/checkout`. This answers Illia's "universal checkout" idea and supports a `realworld` entry. Drop it if behind schedule.
 4. ~~List and cancel on the CC marketplace.~~ Removed: a listing survives an NFT sale (D-016). Withdraw the card first, then list.
-5. Cash-out to any chain via Intents.
+5. ~~Cash-out to any chain via Intents.~~ Now a must-have, done on test networks (D-028).
 6. EVM-chain CC packs. Hosted demo kept up until 25 Nov.
 
 ### Out of scope
@@ -82,7 +82,7 @@ Own inventory, own odds, a pricing engine, Magic Eden/Tensor connectors, OutLaye
 | **Mon 9 Nov** | Tier 1 evidence and app start | `verify:pull` run against recorded pulls, evidence file with transaction links, README first draft. Web app: pack shop and checkout against the relayer API. |
 | **Tue 10 Nov** | Web app | Privy sign-in, reveal, proof panel, transfer, sell back, withdraw, honest progress messages for slow signing. Needs your Privy app id. |
 | **Wed 11 Nov** | Mainnet prep | Mainnet treasury and nonce accounts, a paid RPC endpoint, partner key, dry-run CC mainnet `generatePack` through `assertSafePackTx` with no signing, the contract deploy **(your approval)**. |
-| **Thu 12 Nov** | **Mainnet run (your approval, ~$130–180 outlay)** | One real $50 pull paid from SOL, handover, sell back, withdraw, recorded hashes. A spare half-day for fixes. |
+| **Thu 12 Nov** | **Mainnet run (your approval, about $40 outlay, D-029)** | One real $25 pull paid from SOL, handover, sell back, withdraw, recorded hashes. A spare half-day for fixes. |
 | **Fri 13 Nov** | README and video | Final README for machine readers, demo video, X post draft. Features freeze at 18:00. |
 | **Sat 14 Nov** | Submit | Final clean-clone run. You make the repo public and post; I print the payload, you confirm, I submit, well before 23:59 UTC. |
 
@@ -99,9 +99,9 @@ Own inventory, own odds, a pricing engine, Magic Eden/Tensor connectors, OutLaye
 
 0. **Franchise art on the home page.** The gallery wall shows real cards, so franchise art and names printed on slabs are visible, which sits close to your "no franchise branding in our own UI" rule. It's the cards' own media, loaded live, with nothing shipped or named by us. Recommendation: keep it for the hackathon and get legal advice before any public launch.
 
-1. Confirm the design above (front end to CC plus card-account NFTs). Work since "go" assumes it.
+1. ~~Confirm the design above.~~ Confirmed 9 Nov (D-028).
 2. Tracks: **`nfts` + `realworld` + `open`** is my recommendation (`realworld` is justified by the reusable checkout). `games` is not recommended.
-3. Mainnet budget (~$130–180 by 11 Nov) and the source chain (SOL recommended, D-021).
+3. Mainnet budget (you asked for $30; about $40 estimated, D-029) and the source chain (SOL recommended, D-021).
 4. Mainnet payout account, Privy app id, 1Click partner key application, a paid RPC endpoint.
 5. Neutral pack names in our UI.
 
@@ -146,6 +146,6 @@ mintent/
 | **TypeScript relayer and checkout** | CC, Solana (`@solana/web3.js` 3.1), the 1Click SDK and Privy are all TypeScript-first. |
 | **Build Solana transactions off-chain, sign on-chain** | The contract decides *who* may sign for *which* path. Card owners sign anything for their own card. The treasury is relayer-only, which is a documented trust assumption. |
 | **Tidepool for testnet 1Click** | The only Intents path on testnet, using the same `/v0` API and the official SDK through a base-URL swap. It's unofficial and custodial: test tokens only, never our partner JWT, a fixture fallback, and no reliance on swap hashes (mainnet swaps are confidential). |
-| **Privy, direct** | Mainnet email sign-in with no approval queue (D-026). |
+| **Privy, direct** | Mainnet email or wallet sign-in with no approval queue (D-026, D-028). |
 | **SQLite in the relayer** | Durable order state and idempotency with zero infrastructure. |
 | **No OutLayer in the must-haves** | CC's ECVRF already proves fairness. OutLayer's TEE-signature "VRF" would be weaker and duplicative. |

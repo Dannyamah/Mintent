@@ -20,6 +20,8 @@ export interface Chain {
   tokenBalance(owner: string, mint: string): Promise<bigint>;
   /** The treasury's SOL, which pays Solana fees and rent. */
   treasurySol(): Promise<bigint>;
+  /** Recent successful transactions touching `owner`'s account for `mint`, oldest first. */
+  recentTokenTxs(owner: string, mint: string): Promise<{ sig: string; atMs: number }[]>;
   /** How much `owner`'s balance of `mint` rose in a confirmed transaction, or null if it isn't confirmed. */
   tokenDeltaInTx(sig: string, owner: string, mint: string): Promise<bigint | null>;
   buildNonceTx(nonceIndex: number, instructions: TransactionInstruction[]): Promise<VersionedTransaction>;
@@ -52,6 +54,8 @@ export interface Deps {
   contract: ContractApi;
   chain: Chain;
   sponsor: Sponsor;
+  /** Testnet only: fund a cash-out deposit in the token Tidepool accepts, which sell-back money on devnet isn't. Returns the transaction. */
+  fundTestCashOut?: (depositAddress: string, amount: bigint) => Promise<string>;
   /** Ask the image service to prepare a resized copy now, so the customer doesn't wait for it. Never throws. */
   warmImages?: (urls: string[]) => Promise<void>;
   topUpTestTreasury?: TopUpTestTreasury;
@@ -87,6 +91,11 @@ export class SolanaChain implements Chain {
   async assetOwner(mint: string) {
     const { owner, collection } = await readCoreAsset(this.conn, new PublicKey(mint));
     return { owner: owner.toBase58(), collection };
+  }
+
+  async recentTokenTxs(owner: string, mint: string): Promise<{ sig: string; atMs: number }[]> {
+    const sigs = await this.conn.getSignaturesForAddress(await ata(new PublicKey(owner), new PublicKey(mint)), { limit: 50 });
+    return sigs.filter((s) => !s.err && s.blockTime).map((s) => ({ sig: s.signature, atMs: Number(s.blockTime) * 1000 })).reverse();
   }
 
   async treasurySol(): Promise<bigint> {

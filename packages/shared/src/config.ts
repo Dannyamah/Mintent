@@ -51,21 +51,21 @@ export const CONFIGS: Record<NearNetwork, MintentConfig> = {
     oneClickBase: "https://1click.chaindefuser.com",
     checkoutDestinationAsset: "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
     checkoutMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    defaultPack: "pokemon_50",
+    defaultPack: "pokemon_25",
     serviceFeeBps: 100,
     nonceAccounts: 3,
   },
 };
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): MintentConfig {
-  const network = (env.NEAR_NETWORK ?? "testnet") as NearNetwork;
+  const network = (env.NEAR_NETWORK || "testnet") as NearNetwork;
   const base = CONFIGS[network];
   if (!base) throw new Error(`unknown NEAR_NETWORK ${network}`);
   return {
     ...base,
-    nearRpc: env.NEAR_RPC_URL ?? base.nearRpc,
-    solanaRpc: env.SOLANA_RPC_URL ?? base.solanaRpc,
-    oneClickBase: env.ONECLICK_BASE_URL ?? base.oneClickBase,
+    nearRpc: env.NEAR_RPC_URL || base.nearRpc,
+    solanaRpc: env.SOLANA_RPC_URL || base.solanaRpc,
+    oneClickBase: env.ONECLICK_BASE_URL || base.oneClickBase,
     serviceFeeBps: env.SERVICE_FEE_BPS ? Number(env.SERVICE_FEE_BPS) : base.serviceFeeBps,
   };
 }

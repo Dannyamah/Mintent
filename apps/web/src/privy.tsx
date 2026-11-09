@@ -2,9 +2,18 @@
 // it reports the signed-in state up to App, and Privy draws its own login window.
 import { PrivyProvider, useLogin, useLogout, usePrivy } from "@privy-io/react-auth";
 import { useCreateWallet, useExportWallet, useSignRawHash } from "@privy-io/react-auth/extended-chains";
+import { toSolanaWalletConnectors } from "@privy-io/react-auth/solana";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Health } from "./api";
 import { privyWallet, type SignRawHash, type Wallet } from "./wallet";
+
+/** The wallet someone signed in with, if any. It's their login, and a handy default address. It doesn't own the NFT. */
+export interface LoginWallet {
+  address: string;
+  chainType: "ethereum" | "solana";
+}
+
+const solanaConnectors = toSolanaWalletConnectors();
 
 export interface PrivyState {
   ready: boolean;
@@ -12,7 +21,8 @@ export interface PrivyState {
   creating: boolean;
   error: string | null;
   wallet: Wallet | null;
-  login(): void;
+  loginWallet: LoginWallet | null;
+  login(method: "email" | "wallet"): void;
   logout(): Promise<void>;
   exportKey(): Promise<void>;
   retry(): void;
@@ -40,6 +50,8 @@ function Bridge({ health, onState, onLoginCancelled }: Omit<Props, "appId">) {
   // Choose the NEAR wallet by type: a user can have other wallets linked too.
   const linked = user?.linkedAccounts.find((a) => a.type === "wallet" && (a as { chainType?: string }).chainType === "near") as { address: string } | undefined;
   const address = authenticated ? (linked?.address ?? created) : null;
+  const external = user?.linkedAccounts.find((a) => a.type === "wallet" && (a as { walletClientType?: string }).walletClientType !== "privy" && ["ethereum", "solana"].includes((a as { chainType?: string }).chainType ?? "")) as { address: string; chainType: LoginWallet["chainType"] } | undefined;
+  const loginWallet = authenticated && external ? { address: external.address, chainType: external.chainType } : null;
 
   useEffect(() => {
     if (!authenticated) {
@@ -78,7 +90,8 @@ function Bridge({ health, onState, onLoginCancelled }: Omit<Props, "appId">) {
       creating: authenticated && !wallet && !error,
       error: authenticated && !wallet && address ? "This sign-in returned an account Mintent can't use." : error,
       wallet,
-      login: () => login(),
+      loginWallet,
+      login: (method) => login({ loginMethods: [method] }),
       logout: () => logout(),
       exportKey: () => exportWallet({ address: address! }),
       retry: () => {
@@ -87,7 +100,7 @@ function Bridge({ health, onState, onLoginCancelled }: Omit<Props, "appId">) {
       },
     });
     // eslint-disable-next-line -- login, logout and exportWallet are rebuilt by Privy; the latest closure is reported on each state change.
-  }, [address, authenticated, error, ready, wallet]);
+  }, [address, authenticated, error, loginWallet?.address, ready, wallet]);
 
   return null;
 }
@@ -97,8 +110,9 @@ export default function PrivyBridge({ appId, ...rest }: Props) {
     <PrivyProvider
       appId={appId}
       config={{
-        loginMethods: ["email"],
-        appearance: { theme: "dark", accentColor: "#7CF5C4", showWalletLoginFirst: false, landingHeader: "Sign in to Mintent" },
+        loginMethods: ["email", "wallet"],
+        appearance: { theme: "dark", accentColor: "#7CF5C4", showWalletLoginFirst: false, landingHeader: "Sign in to Mintent", walletChainType: "ethereum-and-solana" },
+        externalWallets: { solana: { connectors: solanaConnectors } },
       }}
     >
       <Bridge {...rest} />

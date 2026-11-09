@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { encode } from "uqr";
 import { api, short, timeLeft, units, usd, type Health, type Order, type OrderCreated, type Pack, type PayAsset } from "./api";
 import { CopyButton, EASE, Sheet, useNow } from "./ui";
+import type { LoginWallet } from "./privy";
 import type { Wallet } from "./wallet";
 
 const STEPS: { state: string; label: string; note: string }[] = [
@@ -16,8 +17,15 @@ const STEPS: { state: string; label: string; note: string }[] = [
 ];
 
 const CHAINS: Record<string, string> = { btc: "Bitcoin", sol: "Solana", eth: "Ethereum", base: "Base", arb: "Arbitrum", near: "NEAR", doge: "Dogecoin", xrp: "XRP", ltc: "Litecoin", zec: "Zcash", sui: "Sui", aptos: "Aptos", cardano: "Cardano", bch: "Bitcoin Cash", dash: "Dash", starknet: "Starknet", gnosis: "Gnosis", bera: "Berachain", scroll: "Scroll", plasma: "Plasma", hood: "Robinhood Chain", abs: "Abstract", aleo: "Aleo" };
-const chainLabel = (a: PayAsset) => CHAINS[a.chain] ?? a.chain;
+export const chainLabel = (a: { chain: string }) => CHAINS[a.chain] ?? a.chain;
 const RANK = ["SOL", "USDC", "ETH", "BTC", "USDT", "NEAR"];
+export const rankAssets = (list: PayAsset[]) => {
+  const score = (a: PayAsset) => (RANK.indexOf(a.symbol) + 1 || 99) * 10 + (a.chain === "sol" ? 0 : 1);
+  return [...list].sort((a, b) => score(a) - score(b));
+};
+const EVM = new Set(["eth", "base", "arb", "op", "pol", "bsc", "avax", "gnosis", "bera", "scroll", "plasma", "hood", "abs", "monad", "xlayer", "adi"]);
+/** The signed-in wallet's address, if it can receive on this chain. */
+export const addressFor = (chain: string | undefined, login: LoginWallet | null) => (!chain || !login ? "" : (login.chainType === "ethereum" && EVM.has(chain)) || (login.chainType === "solana" && chain === "sol") ? login.address : "");
 
 function Qr({ text }: { text: string }) {
   const { data, size } = useMemo(() => encode(text, { border: 1 }), [text]);
@@ -29,12 +37,12 @@ function Qr({ text }: { text: string }) {
   );
 }
 
-function AssetPicker({ assets, value, onChange }: { assets: PayAsset[]; value: string; onChange: (id: string) => void }) {
+export function AssetPicker({ assets, value, onChange, legend = "Pay with" }: { assets: PayAsset[]; value: string; onChange: (id: string) => void; legend?: string }) {
   const [q, setQ] = useState("");
   const list = assets.filter((a) => `${a.symbol} ${chainLabel(a)}`.toLowerCase().includes(q.toLowerCase())).slice(0, 40);
   return (
     <fieldset className="assets">
-      <legend>Pay with</legend>
+      <legend>{legend}</legend>
       {assets.length > 8 && (
         <label className="assets__search">
           <Search size={16} aria-hidden="true" />
@@ -80,7 +88,7 @@ function Stepper({ index }: { index: number }) {
   );
 }
 
-export function Checkout({ pack, health, wallet, onClose, onDone }: { pack: Pack; health: Health; wallet: Wallet; onClose: () => void; onDone: (tokenId: string) => void }) {
+export function Checkout({ pack, health, wallet, loginWallet, onClose, onDone }: { pack: Pack; health: Health; wallet: Wallet; loginWallet: LoginWallet | null; onClose: () => void; onDone: (tokenId: string) => void }) {
   const [assets, setAssets] = useState<PayAsset[]>([]);
   const [assetId, setAssetId] = useState("");
   const [refundTo, setRefundTo] = useState("");
@@ -91,17 +99,22 @@ export function Checkout({ pack, health, wallet, onClose, onDone }: { pack: Pack
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const now = useNow();
-  const isTest = health.network === "testnet";
   const asset = assets.find((a) => a.assetId === assetId);
+  // The one asset the test funder can pay with, from inside the test network. Everything else uses a real deposit address.
+  const isTestPay = Boolean(health.testPayAsset) && assetId === health.testPayAsset;
 
   useEffect(() => {
     api.payAssets().then((list) => {
-      const score = (a: PayAsset) => (RANK.indexOf(a.symbol) + 1 || 99) * 10 + (a.chain === "sol" ? 0 : 1);
-      const sorted = [...list].sort((a, b) => score(a) - score(b));
+      const sorted = rankAssets(list);
       setAssets(sorted);
-      setAssetId(sorted[0]?.assetId ?? "");
+      setAssetId(sorted.find((a) => a.assetId === health.testPayAsset)?.assetId ?? sorted[0]?.assetId ?? "");
     }, (e) => setError(e.message));
-  }, []);
+  }, [health.testPayAsset]);
+
+  // Refund to the wallet they signed in with, when it works on the chosen chain. They can still change it.
+  useEffect(() => {
+    setRefundTo(addressFor(asset?.chain, loginWallet));
+  }, [asset?.chain, loginWallet]);
 
   useEffect(() => {
     if (!created) return;
@@ -130,7 +143,7 @@ export function Checkout({ pack, health, wallet, onClose, onDone }: { pack: Pack
     try {
       setCreated(
         await api.createOrder(
-          isTest
+          isTestPay
             ? { buyer: wallet.accountId, packType: pack.code, originAsset: assetId, refundTo: wallet.accountId, depositType: "INTENTS", refundType: "INTENTS" }
             : { buyer: wallet.accountId, packType: pack.code, originAsset: assetId, refundTo: refundTo.trim() },
         ),
@@ -140,7 +153,7 @@ export function Checkout({ pack, health, wallet, onClose, onDone }: { pack: Pack
     } finally {
       setBusy(false);
     }
-  }, [assetId, isTest, pack.code, refundTo, wallet.accountId]);
+  }, [assetId, isTestPay, pack.code, refundTo, wallet.accountId]);
 
   const testPay = async () => {
     setBusy(true);
@@ -160,8 +173,11 @@ export function Checkout({ pack, health, wallet, onClose, onDone }: { pack: Pack
   const state = order?.state ?? "awaiting_payment";
   const stepIndex = Math.max(STEPS.findIndex((s) => s.state === state), 0);
   const failed = ["refunded", "payment_failed", "needs_attention"].includes(state);
-  const waitingDeposit = created && state === "awaiting_payment" && !paid && (order?.checkout_status ?? "PENDING_DEPOSIT") === "PENDING_DEPOSIT";
+  const status = order?.checkout_status ?? "PENDING_DEPOSIT";
+  const underpaid = state === "awaiting_payment" && status === "INCOMPLETE_DEPOSIT";
+  const waitingDeposit = created && state === "awaiting_payment" && !paid && (status === "PENDING_DEPOSIT" || underpaid);
   const remaining = created ? timeLeft(created.deadline) : null;
+  const expired = Boolean(created) && !remaining && state === "awaiting_payment" && status === "PENDING_DEPOSIT";
   void now;
 
   return (
@@ -177,11 +193,11 @@ export function Checkout({ pack, health, wallet, onClose, onDone }: { pack: Pack
             <AssetPicker assets={assets} value={assetId} onChange={setAssetId} />
             {asset?.symbol === "BTC" && <p className="note"><AlertTriangle size={15} aria-hidden="true" /> Bitcoin takes about 13 minutes to settle. Other coins take under a minute.</p>}
 
-            {!isTest && (
+            {!isTestPay && (
               <div className="field">
                 <label htmlFor="refund">Your {asset ? chainLabel(asset) : ""} address, for refunds</label>
                 <input id="refund" value={refundTo} onChange={(e) => setRefundTo(e.target.value)} autoComplete="off" spellCheck={false} />
-                <p className="hint">If the payment can't complete, it goes back here.</p>
+                <p className="hint">If the payment can't complete, it goes back here.{asset && addressFor(asset.chain, loginWallet) === refundTo && refundTo ? " This is the wallet you signed in with." : ""}</p>
               </div>
             )}
 
@@ -214,7 +230,7 @@ export function Checkout({ pack, health, wallet, onClose, onDone }: { pack: Pack
             </label>
 
             {error && <p className="error" role="alert">{error}</p>}
-            <button className="btn btn--primary btn--full" disabled={!adult || !assetId || busy || (!isTest && !refundTo.trim())} onClick={start}>
+            <button className="btn btn--primary btn--full" disabled={!adult || !assetId || busy || (!isTestPay && !refundTo.trim())} onClick={start}>
               {busy ? <><span className="spinner" aria-hidden="true" /> Getting your quote…</> : "Get payment details"}
             </button>
           </motion.div>
@@ -223,12 +239,14 @@ export function Checkout({ pack, health, wallet, onClose, onDone }: { pack: Pack
             <AnimatePresence>
               {waitingDeposit && (
                 <motion.div className="pay" exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }}>
-                  <p className="pay__amount">
+                  {underpaid && <p className="note"><AlertTriangle size={15} aria-hidden="true" /> We've received less than the full amount. Send the rest to the same address before the quote ends, or it will be refunded.</p>}
+                  {expired && <p className="error" role="alert">This quote has ended, so don't send anything. If you already sent money, it will be refunded to your address. Close this and start again for a new quote.</p>}
+                  {!expired && <p className="pay__amount">
                     Send exactly
                     <strong>{created.amountInFormatted ?? units(created.amountIn)} {asset?.symbol}</strong>
                     <small>on {asset ? chainLabel(asset) : ""}{remaining ? ` · quote valid for ${remaining}` : ""}</small>
-                  </p>
-                  {isTest && health.testPay ? (
+                  </p>}
+                  {expired ? null : isTestPay ? (
                     <>
                       <p className="hint">Test network: no real money moves.</p>
                       <button className="btn btn--primary btn--full" disabled={busy} onClick={testPay}>

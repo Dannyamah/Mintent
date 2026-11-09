@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign as edSign, createPublicKey } from "node:crypto";
 import { beforeEach, test } from "node:test";
-import { PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
+import { PublicKey, TransactionInstruction, TransactionMessage, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
-import { MockBackend } from "@mintent/checkout";
-import { COMPUTE_BUDGET, MEMO_PROGRAM, MPL_CORE, realRpcError, TOKEN_PROGRAM, transferCheckedIx, withRealErrors, type CardView } from "@mintent/shared";
+import { looksLikeAddress, MockBackend, quoteErrorForCustomer } from "@mintent/checkout";
+import { ata, COMPUTE_BUDGET, MEMO_PROGRAM, MPL_CORE, realRpcError, TOKEN_PROGRAM, transferCheckedIx, withRealErrors, type CardView } from "@mintent/shared";
 import { CardOps, Db, isSolanaSignature, OrderPipeline, reconcile, sponsorAmounts, type Chain, type ContractApi, type Deps } from "../src/index.ts";
 
 function keypair() {
@@ -57,6 +57,7 @@ interface World {
   settledDelta: bigint | null;
   ccSawPayment: boolean;
   treasurySol: bigint;
+  incoming: { sig: string; atMs: number; delta: bigint }[];
 }
 
 function world(): World {
@@ -80,6 +81,7 @@ function world(): World {
     settledDelta: 25_250_000n,
     ccSawPayment: false,
     treasurySol: 1_000_000_000n,
+    incoming: [],
     deps: null as never,
   };
   const contract: ContractApi = {
@@ -122,7 +124,8 @@ function world(): World {
     },
     tokenBalance: async () => w.balance,
     treasurySol: async () => w.treasurySol,
-    tokenDeltaInTx: async () => w.settledDelta,
+    recentTokenTxs: async () => w.incoming.map(({ sig, atMs }) => ({ sig, atMs })),
+    tokenDeltaInTx: async (sig) => w.incoming.find((i) => i.sig === sig)?.delta ?? w.settledDelta,
     buildNonceTx: async (_i, ixs) => new VersionedTransaction(new TransactionMessage({ payerKey: TREASURY, recentBlockhash: BLOCKHASH as never, instructions: ixs }).compileToV0Message()),
   };
   w.deps = {
@@ -270,6 +273,81 @@ test("a paid order that can't finish goes to needs_attention, not silently nowhe
   assert.equal(w.treasurySigns, 0);
 });
 
+// A confidential swap: status says SUCCESS, with no payout hash we can use.
+function noReportedHash() {
+  const real = w.checkout.status.bind(w.checkout);
+  w.checkout.status = async (d) => {
+    const s = await real(d);
+    if (s.status === "SUCCESS") s.swapDetails = { ...s.swapDetails, destinationChainTxHashes: [] };
+    return s;
+  };
+  w.settledDelta = null;
+}
+const FULL = 25_250_000n;
+
+test("with no reported hash, a fresh transaction for the full amount proves payment", async () => {
+  noReportedHash();
+  w.incoming = [{ sig: "inflow-1", atMs: Date.now(), delta: FULL }];
+  const { p, id } = await paidOrder(w);
+  const o = await runUntilSettled(p, id);
+  assert.equal(o.state, "complete");
+  assert.equal(o.settle_tx, "inflow-1");
+  assert.equal(w.mints, 1);
+});
+
+test("the same transaction can't prove two orders", async () => {
+  noReportedHash();
+  w.incoming = [{ sig: "inflow-1", atMs: Date.now(), delta: FULL }];
+  const a = await paidOrder(w);
+  assert.equal((await runUntilSettled(a.p, a.id)).settle_tx, "inflow-1");
+  const b = await paidOrder(w);
+  const stuck = await b.p.advance(b.id);
+  const again = await b.p.advance(b.id);
+  assert.equal(stuck.settle_tx, null);
+  assert.equal(again.state, "awaiting_payment");
+  assert.equal(w.mints, 1);
+
+  w.incoming.push({ sig: "inflow-2", atMs: Date.now(), delta: FULL });
+  assert.equal((await runUntilSettled(b.p, b.id)).settle_tx, "inflow-2");
+  assert.equal(w.mints, 2);
+});
+
+test("a transaction too small, or from before the order, proves nothing", async () => {
+  noReportedHash();
+  w.incoming = [{ sig: "small", atMs: Date.now(), delta: FULL - 1n }, { sig: "old", atMs: Date.now() - 10 * 60_000, delta: FULL }];
+  const { p, id } = await paidOrder(w);
+  let o = await p.advance(id);
+  for (let i = 0; i < 20 && o.state === "awaiting_payment"; i++) o = await p.advance(id);
+  assert.equal(o.state, "needs_attention");
+  assert.match(o.last_error ?? "", /not proven/);
+  assert.equal(w.mints, 0);
+});
+
+test("an unpaid order is never completed by someone else's transaction", async () => {
+  // The treasury received money, but 1Click hasn't said this order was paid.
+  w.incoming = [{ sig: "other", atMs: Date.now(), delta: FULL }];
+  const { order } = await new OrderPipeline(w.deps).createOrder({ buyer: "alice", packType: "pokemon_25", originAsset: "mock:usdc", refundTo: "alice" });
+  const o = await new OrderPipeline(w.deps).advance(order.id);
+  assert.equal(o.state, "awaiting_payment");
+  assert.equal(w.mints, 0);
+});
+
+test("an RPC failure during the on-chain search isn't treated as proof", async () => {
+  noReportedHash();
+  w.incoming = [{ sig: "inflow-1", atMs: Date.now(), delta: FULL }];
+  w.deps.chain.recentTokenTxs = async () => { throw new Error("429"); };
+  const { p, id } = await paidOrder(w);
+  assert.equal((await p.advance(id)).state, "awaiting_payment");
+  assert.equal(w.mints, 0);
+});
+
+test("a reported hash is still used first", async () => {
+  w.incoming = [{ sig: "other-inflow", atMs: Date.now(), delta: FULL }];
+  const { p, id } = await paidOrder(w);
+  const o = await runUntilSettled(p, id);
+  assert.match(o.settle_tx ?? "", /^mock-dest-/);
+});
+
 test("no new orders when the treasury can't pay Solana fees, so nobody pays into a stall", async () => {
   w.treasurySol = 1_200_000n; // the real low balance that was found on devnet
   await assert.rejects(new OrderPipeline(w.deps).createOrder({ buyer: "alice", packType: "pokemon_25", originAsset: "mock:usdc", refundTo: "alice" }), { status: 503 });
@@ -385,6 +463,116 @@ test("refunded and rejected orders are final: nothing restarts them", async () =
   p.recoverStuck(Date.now() + 6 * MINUTE);
   assert.equal(w.deps.db.order(id)!.state, "refunded");
   assert.throws(() => p.retry(id, Date.now() + 6 * MINUTE), { status: 409 });
+});
+
+const MAINNET_CASH_OUT = { network: "mainnet", ccPaymentMint: USDC, checkoutDestinationAsset: "dest", checkoutMint: USDC, serviceFeeBps: 100, nonceAccounts: 1 } as const;
+const cashOut = (op: { detail: string }) => JSON.parse(op.detail);
+// A cash-out moves USDC, not the card, and the contract's policy classifies it that way.
+const cashOutOps = () => {
+  w.deps.contract.checkCardMessage = async () => ({ moves_card: false, uses_durable_nonce: true });
+  return new CardOps(w.deps);
+};
+
+test("cash-out on mainnet: the NFT's address pays 1Click's deposit address, and a refund comes back to it", async () => {
+  w.deps.config = MAINNET_CASH_OUT as never;
+  let asked: Record<string, string> | undefined;
+  const quote = w.checkout.payoutQuote.bind(w.checkout);
+  w.checkout.payoutQuote = async (r) => { asked = r as never; return quote(r); };
+  const deposit = keypair().address;
+  w.checkout.nextPayoutAddress = deposit;
+  const ops = cashOutOps();
+  const op = await ops.prepareCashOut("0", "alice", "mock:btc", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq");
+  assert.equal(op.kind, "cash_out");
+  assert.equal(op.moves_card, 0);
+  assert.equal(asked!.refundTo, CARD);
+  assert.equal(asked!.amountIn, w.balance.toString());
+  assert.equal(cashOut(op).symbol, "BTC");
+  assert.equal(cashOut(op).depositAddress, deposit);
+  const keys = VersionedMessage.deserialize(Buffer.from(op.message_hex, "hex")).staticAccountKeys.map((k) => k.toBase58());
+  assert.ok(keys.includes((await ata(new PublicKey(deposit), new PublicKey(USDC))).toBase58()), "the USDC goes to the deposit address");
+  assert.ok(!keys.includes((await ata(TREASURY, new PublicKey(USDC))).toBase58()), "and never to the treasury on mainnet");
+});
+
+test("cash-out refuses the wrong kind of address and someone who doesn't own the NFT", async () => {
+  const ops = cashOutOps();
+  await assert.rejects(ops.prepareCashOut("0", "alice", "mock:btc", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"), { status: 400 });
+  await assert.rejects(ops.prepareCashOut("0", "mallory", "mock:btc", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"), /not the owner/);
+  await assert.rejects(ops.prepareCashOut("0", "alice", "mock:nope", "alice.near"), { status: 400 });
+  w.balance = 0n;
+  await assert.rejects(ops.prepareCashOut("0", "alice", "mock:usdc", "alice.near"), /no proceeds/);
+});
+
+test("cash-out follows the swap to the end, funds the deposit once, and reports the result", async () => {
+  const funded: string[] = [];
+  w.deps.fundTestCashOut = async (d) => { funded.push(d); return "fund-tx"; };
+  const ops = cashOutOps();
+  const op = await ops.prepareCashOut("0", "alice", "mock:usdc", "alice.near");
+  await ops.advanceCashOuts();
+  assert.equal(funded.length, 0); // not until the owner's transaction has landed
+
+  w.deps.db.updateOp(op.id, { state: "sent", tx_sig: "card-tx" });
+  for (let i = 0; i < 6; i++) await ops.advanceCashOuts();
+  const end = w.deps.db.op(op.id)!;
+  assert.equal(end.swap_status, "SUCCESS");
+  assert.equal(end.swap_deposit_tx, "fund-tx");
+  assert.ok(end.swap_dest_tx);
+  assert.equal(funded.length, 1);
+  await ops.advanceCashOuts();
+  assert.equal(funded.length, 1);
+});
+
+test("a refunded cash-out is reported as refunded", async () => {
+  w.deps.config = MAINNET_CASH_OUT as never;
+  w.checkout.nextScript = ["PROCESSING", "REFUNDED"];
+  w.checkout.nextPayoutAddress = keypair().address;
+  const ops = cashOutOps();
+  const op = await ops.prepareCashOut("0", "alice", "mock:usdc", "alice.near");
+  w.deps.db.updateOp(op.id, { state: "sent", tx_sig: "card-tx" });
+  for (let i = 0; i < 4; i++) await ops.advanceCashOuts();
+  assert.equal(w.deps.db.op(op.id)!.swap_status, "REFUNDED");
+  assert.equal(w.deps.db.op(op.id)!.swap_deposit_tx, "card-tx"); // mainnet: the NFT's own transaction is the deposit
+});
+
+test("a failed step in a cash-out retries on the next pass", async () => {
+  let fail = true;
+  w.deps.fundTestCashOut = async () => { if (fail) throw new Error("RPC down"); return "fund-tx"; };
+  const ops = cashOutOps();
+  const op = await ops.prepareCashOut("0", "alice", "mock:usdc", "alice.near");
+  w.deps.db.updateOp(op.id, { state: "sent", tx_sig: "card-tx" });
+  await ops.advanceCashOuts();
+  assert.equal(w.deps.db.op(op.id)!.swap_deposit_tx, null);
+  fail = false;
+  await ops.advanceCashOuts();
+  assert.equal(w.deps.db.op(op.id)!.swap_deposit_tx, "fund-tx");
+});
+
+test("the wrong kind of refund address stops an order before anyone can pay", async () => {
+  const p = new OrderPipeline(w.deps);
+  await assert.rejects(p.createOrder({ buyer: "alice", packType: "pokemon_25", originAsset: "mock:btc", refundTo: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045" }), { status: 400 });
+  await assert.rejects(p.createOrder({ buyer: "alice", packType: "pokemon_25", originAsset: "mock:nope", refundTo: "alice" }), { status: 400 });
+  assert.equal(w.deps.db.orders().length, 0);
+  const { order } = await p.createOrder({ buyer: "alice", packType: "pokemon_25", originAsset: "mock:btc", refundTo: "  bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq " });
+  assert.equal(order.refund_to, "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq");
+  const asked = await new OrderPipeline(w.deps).createOrder({ buyer: "alice", packType: "pokemon_25", originAsset: "mock:btc", refundTo: " 1BoatSLRHtKNngkdXEeobR76b53LETtpyT " });
+  assert.equal(asked.quote.request.refundTo, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT");
+});
+
+test("a refused quote gives the customer a plain message, never the raw API response", async () => {
+  w.checkout.quote = async () => { throw new Error('1Click /v0/quote 400: {"message":"originAsset and destinationAsset must differ"}'); };
+  await assert.rejects(new OrderPipeline(w.deps).createOrder({ buyer: "alice", packType: "pokemon_25", originAsset: "mock:usdc", refundTo: "alice" }), (e: Error & { status?: number }) => {
+    assert.equal(e.status, 502);
+    assert.doesNotMatch(e.message, /1Click|originAsset|\{/);
+    return true;
+  });
+  assert.match(quoteErrorForCustomer(new Error('400: {"message":"Amount is too low for bridge"}')), /too small/);
+  assert.match(quoteErrorForCustomer(new Error('400: {"message":"invalid recipient"}')), /address/);
+});
+
+test("address formats", () => {
+  const good: [string, string][] = [["eth", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], ["base", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], ["btc", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"], ["btc", "1BoatSLRHtKNngkdXEeobR76b53LETtpyT"], ["sol", TREASURY.toBase58()], ["near", "alice.near"], ["near", "9ed1b724cc85b4b7f30fd32bf8868aee0d6d177d4b3b0a259547565329cf631a"], ["doge", "DH5yaieqoZN36fDVciNyRueRGvGLR3mr7L"], ["unknownchain", "anything"]];
+  const bad: [string, string][] = [["eth", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"], ["btc", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], ["sol", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], ["near", "Alice Near"], ["eth", "0x123"], ["unknownchain", "  "]];
+  for (const [c, a] of good) assert.ok(looksLikeAddress(c, a), `${c} ${a}`);
+  for (const [c, a] of bad) assert.ok(!looksLikeAddress(c, a), `${c} ${a}`);
 });
 
 test("refunded and failed payments never mint", async () => {

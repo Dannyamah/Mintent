@@ -13,10 +13,12 @@ export function neutralPackName(price: number): string {
   return `$${price} Graded Card Pack`;
 }
 
+// Tidepool refuses to swap a coin for itself, so the test network can't take USDC on Solana. Mainnet 1Click quotes it (9 Nov).
 // 1Click temporarily blocks small swaps from these chains (docs changelog, Sep 2026), so they can't pay for a pack.
 const SMALL_SWAPS_BLOCKED = new Set(["bsc", "pol", "ton", "op", "avax", "stellar", "monad", "xlayer", "adi", "tron"]);
 const TESTNET_USDC = "usdc.tidepool-sandbox.testnet";
 const TESTNET_VERIFIER = "verifier.tidepool-sandbox.testnet";
+const TESTNET_PAY_ASSET = `nep141:${TESTNET_USDC}`;
 
 async function body(req: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
@@ -33,16 +35,16 @@ function need(o: Record<string, unknown>, ...keys: string[]) {
   for (const k of keys) if (typeof o[k] !== "string" || !o[k]) throw Object.assign(new Error(`missing ${k}`), { status: 400 });
 }
 
-export async function startServer(port = Number(process.env.PORT ?? 8787)) {
+export async function startServer(port = Number(process.env.PORT || 8787)) {
   const config = loadConfig();
   const contractId = process.env.MINTENT_CONTRACT_ID;
   const relayerId = process.env.RELAYER_ACCOUNT;
   if (!contractId || !relayerId) throw new Error("set MINTENT_CONTRACT_ID and RELAYER_ACCOUNT");
   const relayer = process.env.RELAYER_PRIVATE_KEY ? accountFromKey(config.network, relayerId, process.env.RELAYER_PRIVATE_KEY, process.env.NEAR_RPC_URL) : loadAccount(config.network, relayerId);
-  const d = await createRuntime({ contractId, relayer, dbPath: process.env.RELAYER_DB ?? "relayer.sqlite", config, oneClickJwt: process.env.ONECLICK_JWT });
+  const d = await createRuntime({ contractId, relayer, dbPath: process.env.RELAYER_DB || "relayer.sqlite", config, oneClickJwt: process.env.ONECLICK_JWT });
   const pipeline = new OrderPipeline(d);
   const ops = new CardOps(d);
-  const allowedOrigin = process.env.WEB_ORIGIN ?? "*";
+  const allowedOrigin = process.env.WEB_ORIGIN || "*";
   // Testnet convenience only: lets the app pay a quote with test USDC. Never available on mainnet.
   const funder = config.network === "testnet" && process.env.DEMO_FUNDER ? loadAccount("testnet", process.env.DEMO_FUNDER) : null;
   let gallery: { at: number; pulls: RecentPull[] } = { at: 0, pulls: [] };
@@ -78,8 +80,10 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     };
   };
 
+  const assetView = (t: { assetId: string; symbol: string; blockchain: string; decimals: number; price?: number }) => ({ assetId: t.assetId, symbol: t.symbol, chain: t.blockchain, decimals: t.decimals, price: t.price });
+
   const routes: [string, RegExp, (m: RegExpMatchArray, b: any) => Promise<unknown>][] = [
-    ["GET", /^\/health$/, async () => ({ ok: true, network: config.network, contract: contractId, treasury: d.chain.treasury.toBase58(), checkout: d.checkout.name, mpcContract: config.mpcContract, serviceFeeBps: config.serviceFeeBps, defaultPack: CONFIGS[config.network].defaultPack, nearRpcs: [NETWORKS[config.network].rpc, ...NETWORKS[config.network].rpcFallbacks], testPay: Boolean(funder) })],
+    ["GET", /^\/health$/, async () => ({ ok: true, network: config.network, contract: contractId, treasury: d.chain.treasury.toBase58(), checkout: d.checkout.name, mpcContract: config.mpcContract, serviceFeeBps: config.serviceFeeBps, defaultPack: CONFIGS[config.network].defaultPack, nearRpcs: [NETWORKS[config.network].rpc, ...NETWORKS[config.network].rpcFallbacks], testPay: Boolean(funder), testPayAsset: funder ? TESTNET_PAY_ASSET : null })],
     ["GET", /^\/gallery$/, async () => {
       return gallery.pulls;
     }],
@@ -109,11 +113,13 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
       const ops = d.db.opsByActor(account);
       const activity = [
         ...orders.map((o) => ({ kind: "order", at: o.created_at, state: o.state, tokenId: o.token_id, name: o.card_name, rarity: o.rarity, packPriceUnits: o.price_units, tx: o.buy_sig, orderId: o.id })),
-        ...ops.filter((o) => o.state === "sent").map((o) => ({ kind: o.kind, at: o.created_at, state: o.state, tokenId: o.token_id, detail: JSON.parse(o.detail), tx: o.tx_sig })),
+        ...ops.filter((o) => o.state === "sent").map((o) => ({ kind: o.kind, at: o.created_at, state: o.state, tokenId: o.token_id, detail: JSON.parse(o.detail), tx: o.tx_sig, swapStatus: o.swap_status, swapAmountOut: o.swap_amount_out })),
       ].sort((a, b) => b.at - a.at).slice(0, 40);
       return { account, cards, active: orders.filter((o) => ["awaiting_payment", "paid", "minted", "purchased", "needs_attention"].includes(o.state)).map((o) => ({ orderId: o.id, state: o.state, status: o.checkout_status, packType: o.pack_type, priceUnits: o.price_units, createdAt: o.created_at, lastError: o.last_error })), activity };
     }],
-    ["GET", /^\/pay-assets$/, async () => (await d.checkout.tokens()).filter((t) => !SMALL_SWAPS_BLOCKED.has(t.blockchain) && (config.network !== "testnet" || t.assetId === `nep141:${TESTNET_USDC}`)).map((t) => ({ assetId: t.assetId, symbol: t.symbol, chain: t.blockchain, decimals: t.decimals, price: t.price }))],
+    ["GET", /^\/pay-assets$/, async () => (await d.checkout.tokens()).filter((t) => !SMALL_SWAPS_BLOCKED.has(t.blockchain) && (config.network !== "testnet" || t.assetId !== config.checkoutDestinationAsset)).map(assetView)],
+    // The small-swap block is on where a swap is paid from, so a cash-out can go to those chains.
+    ["GET", /^\/cash-out-assets$/, async () => (await d.checkout.tokens()).map(assetView)],
     ["POST", /^\/orders$/, async (_m, b) => {
       need(b, "buyer", "packType", "originAsset", "refundTo");
       const { order, quote } = await pipeline.createOrder({ buyer: b.buyer, packType: b.packType, originAsset: b.originAsset, refundTo: b.refundTo, depositType: b.depositType, refundType: b.refundType });
@@ -154,6 +160,15 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     ["POST", /^\/cards\/([^/]+)\/withdraw-proceeds$/, async (m, b) => {
       need(b, "actor", "destination");
       return ops.prepareWithdrawProceeds(m[1], b.actor, b.destination);
+    }],
+    ["POST", /^\/cards\/([^/]+)\/cash-out$/, async (m, b) => {
+      need(b, "actor", "destinationAsset", "recipient");
+      return ops.prepareCashOut(m[1], b.actor, b.destinationAsset, String(b.recipient).trim());
+    }],
+    ["GET", /^\/ops\/([^/]+)$/, async (m) => {
+      const op = d.db.op(decodeURIComponent(m[1]));
+      if (!op) throw Object.assign(new Error("unknown operation"), { status: 404 });
+      return op;
     }],
     ["POST", /^\/ops\/([^/]+)\/finalize$/, async (m, b) => {
       need(b, "cardSignatureHex");
@@ -200,7 +215,20 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
   const wall = setInterval(() => void refreshGallery().catch((e) => d.log(`gallery: ${e}`)), 5 * 60_000);
   const rec = setInterval(() => void reconcile(d).then((f) => f.length && d.log(`reconcile: ${JSON.stringify(f)}`), (e) => d.log(`reconcile: ${e}`)), 60_000);
   const funds = setInterval(topUp, 60_000);
-  return { server, deps: d, stop: () => { clearInterval(tick); clearInterval(rec); clearInterval(wall); clearInterval(funds); server.close(); } };
+  let cashingOut = false;
+  const cashOuts = setInterval(() => {
+    if (cashingOut) return; // funding a testnet deposit can outlast a tick, and mustn't run twice
+    cashingOut = true;
+    void ops.advanceCashOuts().catch((e) => d.log(`cash-outs: ${e}`)).finally(() => { cashingOut = false; });
+  }, 5_000);
+  return { server, deps: d, stop: () => { clearInterval(tick); clearInterval(rec); clearInterval(wall); clearInterval(funds); clearInterval(cashOuts); server.close(); } };
 }
 
-if (process.argv[1]?.endsWith("server.ts")) await startServer();
+if (process.argv[1]?.endsWith("server.ts")) {
+  try {
+    process.loadEnvFile(new URL("../../../.env", import.meta.url));
+  } catch {
+    /* no .env: everything comes from the environment. Values already set always win. */
+  }
+  await startServer();
+}

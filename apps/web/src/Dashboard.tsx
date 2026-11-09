@@ -5,6 +5,7 @@ import { ArrowLeftRight, ArrowRight, Clock, ExternalLink, Package, PackageOpen, 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, insured, rarityOf, short, solanaTx, statusLabel, timeAgo, timeLeft, units, usd, type ActiveOrder, type ActivityItem, type Card, type Dashboard as Data, type Health, type Rarity } from "./api";
 import { CopyButton, CountUp, EASE, Reveal, Skeleton, Tilt } from "./ui";
+import { chainLabel } from "./Checkout";
 import type { Wallet } from "./wallet";
 
 const money = (n: number) => usd(Math.round(n * 100) / 100);
@@ -88,6 +89,7 @@ const ACTIVITY: Record<string, { icon: React.ReactNode; title: (a: ActivityItem)
   sellback: { icon: <WalletIcon size={16} aria-hidden="true" />, title: (a) => `Sold back for ${usd(units(String(a.detail?.price ?? 0)))}` },
   withdraw_card: { icon: <Truck size={16} aria-hidden="true" />, title: () => "Withdrew a card to a wallet" },
   withdraw_proceeds: { icon: <ArrowLeftRight size={16} aria-hidden="true" />, title: (a) => `Withdrew ${usd(units(String(a.detail?.amount ?? 0)))} USDC` },
+  cash_out: { icon: <ArrowLeftRight size={16} aria-hidden="true" />, title: (a) => `Cashed out ${usd(units(String(a.detail?.amount ?? 0)))} to ${a.detail?.symbol} on ${chainLabel({ chain: String(a.detail?.chain ?? "") })}${a.swapStatus === "REFUNDED" || a.swapStatus === "FAILED" ? " (refunded)" : a.swapStatus === "SUCCESS" ? "" : " (swapping)"}` },
 };
 
 function Activity({ items, health }: { items: ActivityItem[]; health: Health }) {

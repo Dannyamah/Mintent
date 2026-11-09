@@ -42,7 +42,7 @@ export interface Order {
   updated_at: number;
 }
 
-export type OpKind = "sellback" | "withdraw_card" | "withdraw_proceeds";
+export type OpKind = "sellback" | "withdraw_card" | "withdraw_proceeds" | "cash_out";
 
 export interface Op {
   id: string;
@@ -57,6 +57,11 @@ export interface Op {
   state: "prepared" | "sent" | "failed" | "expired";
   tx_sig: string | null;
   error: string | null;
+  /** Cash-out only: the transaction that funded the swap, then how the swap went. */
+  swap_deposit_tx: string | null;
+  swap_status: string | null;
+  swap_amount_out: string | null;
+  swap_dest_tx: string | null;
   expires_at: number;
   created_at: number;
 }
@@ -78,9 +83,12 @@ export class Db {
       CREATE TABLE IF NOT EXISTS ops (
         id TEXT PRIMARY KEY, token_id TEXT NOT NULL, kind TEXT NOT NULL, actor TEXT NOT NULL, card_address TEXT NOT NULL,
         message_hex TEXT NOT NULL, nonce_index INTEGER NOT NULL, moves_card INTEGER NOT NULL, detail TEXT NOT NULL, state TEXT NOT NULL,
-        tx_sig TEXT, error TEXT, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+        tx_sig TEXT, error TEXT, swap_deposit_tx TEXT, swap_status TEXT, swap_amount_out TEXT, swap_dest_tx TEXT, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
       );
     `);
+    // Databases made before cash-outs existed.
+    const columns = (this.db.prepare("PRAGMA table_info(ops)").all() as unknown as { name: string }[]).map((c) => c.name);
+    for (const c of ["swap_deposit_tx", "swap_status", "swap_amount_out", "swap_dest_tx"]) if (!columns.includes(c)) this.db.exec(`ALTER TABLE ops ADD COLUMN ${c} TEXT`);
   }
 
   insertOrder(o: Pick<Order, "id" | "buyer" | "pack_type" | "price_units" | "amount_out" | "amount_in" | "origin_asset" | "refund_to" | "deposit_memo" | "deadline">): Order {
@@ -121,7 +129,7 @@ export class Db {
     return this.order(id)!;
   }
 
-  insertOp(o: Omit<Op, "created_at" | "state" | "tx_sig" | "error">): Op {
+  insertOp(o: Pick<Op, "id" | "token_id" | "kind" | "actor" | "card_address" | "message_hex" | "nonce_index" | "moves_card" | "detail" | "expires_at">): Op {
     this.db
       .prepare(`INSERT INTO ops (id,token_id,kind,actor,card_address,message_hex,nonce_index,moves_card,detail,state,expires_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,'prepared',?,?)`)
       .run(o.id, o.token_id, o.kind, o.actor, o.card_address, o.message_hex, o.nonce_index, o.moves_card, o.detail, o.expires_at, Date.now());
@@ -138,6 +146,11 @@ export class Db {
 
   activeOps(): Op[] {
     return this.db.prepare("SELECT * FROM ops WHERE state = 'prepared'").all() as unknown as Op[];
+  }
+
+  /** Cash-outs whose Solana transaction landed and whose swap hasn't finished. */
+  openCashOuts(): Op[] {
+    return this.db.prepare("SELECT * FROM ops WHERE kind = 'cash_out' AND state = 'sent' AND (swap_status IS NULL OR swap_status NOT IN ('SUCCESS','REFUNDED','FAILED'))").all() as unknown as Op[];
   }
 
   updateOp(id: string, patch: Partial<Op>): Op {

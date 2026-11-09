@@ -101,7 +101,7 @@ try {
       await shot("privy-sold");
 
       await page.reload();
-      await page.getByRole("button", { name: /^Withdraw \$/ }).click({ timeout: 45000 });
+      await page.getByRole("button", { name: /^Cash out \$/ }).click({ timeout: 45000 });
       await page.locator("#dest").fill("DP84tcSd3dsu7cPyHEuPA5CAsiWgNA1RArzyvhXEvJAr");
       await page.getByRole("button", { name: "Confirm" }).click();
       await page.waitForFunction(() => /on its way/.test(document.querySelector(".ok")?.textContent ?? ""), null, { timeout: 4 * 60000 });

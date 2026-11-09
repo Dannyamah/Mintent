@@ -8,7 +8,7 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
   return data as T;
 }
 
-export interface Health { network: "testnet" | "mainnet"; contract: string; treasury: string; mpcContract: string; serviceFeeBps: number; defaultPack: string; nearRpcs: string[]; testPay: boolean }
+export interface Health { network: "testnet" | "mainnet"; contract: string; treasury: string; mpcContract: string; serviceFeeBps: number; defaultPack: string; nearRpcs: string[]; testPay: boolean; testPayAsset: string | null }
 export interface Pull { mint: string; image: string; thumb: string; grader: string | null; grade: string | null; insuredValue: number; url: string | null; packType: string | null; rarityTier: number | null; at: string | null }
 export interface Pack { code: string; name: string; price: number; odds: Record<string, number>; expectedValue: number | null; buybackPct: number }
 export interface PackDetail extends Pack { recent: Pull[]; recentIsFromThisPack: boolean }
@@ -22,9 +22,9 @@ export interface Card {
   solanaAddress: string; holder: string | null; heldByToken: boolean; proceedsUnits: string; verifyUrl: string | null; contractId: string; mpcContract: string;
   name: string | null; image: string | null; thumb: string | null; offer: { amountUnits: number; expiresAt: string | null } | null; mintedAt: number | null;
 }
-export interface Op { id: string; kind: string; message_hex: string; detail: string; state: string; tx_sig: string | null; expires_at: number }
+export interface Op { id: string; kind: string; message_hex: string; detail: string; state: string; tx_sig: string | null; expires_at: number; swap_status?: string | null; swap_amount_out?: string | null; swap_dest_tx?: string | null }
 export interface ActiveOrder { orderId: string; state: string; status: string | null; packType: string; priceUnits: string; createdAt: number; lastError: string | null }
-export interface ActivityItem { kind: string; at: number; state: string; tokenId: string | null; name?: string | null; rarity?: string | null; packPriceUnits?: string; detail?: Record<string, unknown>; tx: string | null; orderId?: string }
+export interface ActivityItem { kind: string; at: number; state: string; tokenId: string | null; name?: string | null; rarity?: string | null; packPriceUnits?: string; detail?: Record<string, unknown>; swapStatus?: string | null; swapAmountOut?: string | null; tx: string | null; orderId?: string }
 export interface Dashboard { account: string; cards: Card[]; active: ActiveOrder[]; activity: ActivityItem[] }
 
 export const api = {
@@ -35,6 +35,9 @@ export const api = {
   payAssets: () => call<PayAsset[]>("/pay-assets"),
   createOrder: (b: { buyer: string; packType: string; originAsset: string; refundTo: string; depositType?: string; refundType?: string }) => call<OrderCreated>("/orders", b),
   order: (id: string) => call<Order>(`/orders/${encodeURIComponent(id)}`),
+  cashOutAssets: () => call<PayAsset[]>("/cash-out-assets"),
+  cashOut: (id: string, actor: string, destinationAsset: string, recipient: string) => call<Op>(`/cards/${encodeURIComponent(id)}/cash-out`, { actor, destinationAsset, recipient }),
+  op: (id: string) => call<Op>(`/ops/${encodeURIComponent(id)}`),
   retryOrder: (id: string) => call<{ ok: boolean; state: string }>(`/orders/${encodeURIComponent(id)}/retry`, {}),
   testPay: (id: string) => call<{ ok: boolean }>(`/orders/${encodeURIComponent(id)}/test-pay`, {}),
   dashboard: (account: string) => call<Dashboard>(`/owners/${encodeURIComponent(account)}/dashboard`),

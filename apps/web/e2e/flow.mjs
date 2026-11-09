@@ -154,9 +154,11 @@ try {
 
   log("Ben withdraws the proceeds");
   await ben.locator(".vault-card").first().click();
-  await ben.getByRole("button", { name: /^Withdraw \$/ }).waitFor({ timeout: 30000 });
-  await ben.getByRole("button", { name: /^Withdraw \$/ }).click();
+  await ben.getByRole("button", { name: /^Cash out \$/ }).waitFor({ timeout: 30000 });
+  await ben.getByRole("button", { name: /^Cash out \$/ }).click();
   await ben.locator("#dest").fill("DP84tcSd3dsu7cPyHEuPA5CAsiWgNA1RArzyvhXEvJAr");
+  await ben.waitForTimeout(600);
+  await shot(ben, "11b-cash-out-phone");
   await ben.getByRole("button", { name: "Confirm" }).click();
   await ben.waitForFunction(() => /on its way/.test(document.querySelector(".ok")?.textContent ?? ""), null, { timeout: 4 * 60000 });
   await shot(ben, "12-withdrawn");

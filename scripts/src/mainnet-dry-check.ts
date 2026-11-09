@@ -39,3 +39,20 @@ for (const [symbol, chain] of [["BTC", "btc"], ["SOL", "sol"], ["ETH", "eth"], [
     console.log(`${symbol.padEnd(5)} ${chain.padEnd(5)} FAILED: ${String(e).slice(0, 220)}`);
   }
 }
+
+// Cash-outs: spend USDC on Solana, pay out anywhere. Still dry: no deposit address, no money.
+console.log("\ncash out $100 USDC from Solana to:");
+for (const [symbol, chain] of [["BTC", "btc"], ["ETH", "eth"], ["USDC", "eth"], ["USDC", "base"], ["USDC", "arb"], ["SOL", "sol"], ["USDC", "near"], ["DOGE", "doge"], ["XRP", "xrp"]]) {
+  const t = tokens.find((x) => x.symbol === symbol && x.blockchain === chain);
+  if (!t) {
+    console.log(symbol, chain, "not listed");
+    continue;
+  }
+  try {
+    const q = await backend.payoutQuote({ dry: true, originAsset: cfg.checkoutDestinationAsset, destinationAsset: t.assetId, amountIn: "100000000", recipient: REFUNDS[chain] ?? (chain === "xrp" ? "rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh" : PLACEHOLDER_RECIPIENT), refundTo: PLACEHOLDER_RECIPIENT });
+    const outUsd = (Number(q.amountOut) / 10 ** t.decimals) * (t.price ?? 0);
+    console.log(`${symbol.padEnd(5)} ${chain.padEnd(5)} get ${q.amountOutFormatted ?? q.amountOut} (~$${outUsd.toFixed(2)}, ${q.timeEstimateSeconds ?? "?"} s)`);
+  } catch (e) {
+    console.log(`${symbol.padEnd(5)} ${chain.padEnd(5)} FAILED: ${String(e).slice(0, 220)}`);
+  }
+}

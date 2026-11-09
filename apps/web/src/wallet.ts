@@ -2,14 +2,23 @@
 // Its key is either held by Privy (email sign-in, the only option on mainnet) or, on testnet, generated in this browser.
 import { Account, FailoverRpcProvider, JsonRpcProvider, KeyPair, KeyPairSigner, keyToImplicitAddress, PublicKey, Signer } from "near-api-js";
 import type { Health } from "./api";
+import { PINS, trustedDeployment } from "./pins";
+import { checkCashOutQuote, checkMessage, MessageRefused, type MessageContext } from "./verifyMessage";
 
 const STORE = "mintent.testnet.key";
 const TGAS = 1_000_000_000_000n;
 
+/** What the owner asked for, from their own input. The message is checked against this before anything is signed. */
+export type SigningIntent =
+  | { kind: "sellback"; price: string }
+  | { kind: "withdrawCard"; destination: string }
+  | { kind: "withdrawUsdc"; destination: string; amount: string }
+  | { kind: "cashOut"; recipient: string; destinationAsset: string; amount: string; depositAddress: string; quote: unknown };
+
 export interface Wallet {
   accountId: string;
-  /** Ask the contract for a signature over a Solana message. Locks the NFT for 5 minutes. Slow: 12 to 60 seconds. */
-  signForCard(tokenId: string, messageHex: string): Promise<string>;
+  /** Ask the contract for a signature over a Solana message, if it matches the intent. Locks the NFT for 5 minutes. Slow: 12 to 60 seconds. */
+  signForCard(tokenId: string, messageHex: string, intent: SigningIntent): Promise<string>;
   transfer(tokenId: string, receiver: string): Promise<void>;
 }
 
@@ -46,6 +55,25 @@ export function hasStoredWallet(): boolean {
   return storedKey() !== null;
 }
 
+// Signing out of a test account must keep its key: it's the only copy, and the account may hold cards.
+const SIGNED_OUT = "mintent.testnet.signedOut";
+
+export function isTestSessionActive(): boolean {
+  try {
+    return hasStoredWallet() && localStorage.getItem(SIGNED_OUT) === null;
+  } catch {
+    return false;
+  }
+}
+
+export function endTestSession(): void {
+  try {
+    localStorage.setItem(SIGNED_OUT, "1");
+  } catch {
+    /* private window: nothing was stored to remember */
+  }
+}
+
 /** The test account's secret key, for the user's own backup file. */
 export function exportKey(): string | null {
   return storedKey();
@@ -53,6 +81,7 @@ export function exportKey(): string | null {
 
 /** The reason a contract refused, in plain words. */
 export function refusal(e: unknown): string {
+  if (e instanceof MessageRefused) return e.message;
   // The failover provider wraps the real errors. Use them, never its own summary.
   const inner = (e as { errors?: unknown[] })?.errors?.map(String).join("; ");
   const text = inner || String(e instanceof Error ? e.message : e);
@@ -92,12 +121,57 @@ export class PrivySigner extends Signer {
   }
 }
 
+// 1Click's SDK rejects its own BTC quotes (see packages/checkout). For BTC, the quote is only compared with what the owner chose.
+const SIGNATURE_FALSE_NEGATIVES = new Set(["nep141:btc.omft.near"]);
+
 function walletFrom(accountId: string, signer: Signer, health: Health): Wallet {
-  const provider = withRealErrors(new FailoverRpcProvider(health.nearRpcs.map((url) => new JsonRpcProvider({ url }, { retries: 2, wait: 800, backoff: 1.6 }))));
+  const { contract, network } = trustedDeployment(health);
+  const pins = PINS[network];
+  // Read from pinned RPCs, because the signing check depends on what these return.
+  const provider = withRealErrors(new FailoverRpcProvider(pins.nearRpcs.map((url) => new JsonRpcProvider({ url }, { retries: 2, wait: 800, backoff: 1.6 }))));
   const account = new Account(accountId, provider, signer);
+  const view = <T,>(contractId: string, method: string, args: Record<string, unknown>) => provider.callFunction({ contractId, method, args } as never) as Promise<T>;
+  const derive = async (path: string) => {
+    const key = await view<string>(pins.mpc, "derived_public_key", { path, predecessor: contract, domain_id: 1 });
+    if (typeof key !== "string" || !key.startsWith("ed25519:")) throw new Error("the signing network returned no address");
+    return key.slice("ed25519:".length);
+  };
+
+  /** Everything the check needs, read from NEAR and not from the relayer. */
+  const signingContext = async (tokenId: string): Promise<MessageContext> => {
+    const [config, token] = await Promise.all([
+      view<{ mpc_contract_id: string; treasury_path: string; nonce_accounts: string[] }>(contract, "get_config", {}),
+      view<{ owner_id: string; solana_path: string; record: { card_mint: string | null } } | null>(contract, "get_card", { token_id: tokenId }),
+    ]);
+    if (config.mpc_contract_id !== pins.mpc) throw new MessageRefused("This contract uses a signing network the app doesn't recognise. Nothing was signed.");
+    if (!token) throw new MessageRefused("This NFT doesn't exist on the contract. Nothing was signed.");
+    if (token.owner_id !== accountId) throw new MessageRefused("You don't own this NFT any more. Nothing was signed.");
+    const [card, treasury] = await Promise.all([derive(token.solana_path), derive(config.treasury_path)]);
+    return { card, treasury, nonceAccounts: config.nonce_accounts, usdcMint: pins.usdcMint, asset: token.record.card_mint };
+  };
+
+  const verify = async (tokenId: string, messageHex: string, intent: SigningIntent) => {
+    const ctx = await signingContext(tokenId);
+    if (intent.kind === "cashOut") {
+      // Testnet: sell-back money is a token Tidepool doesn't take, so it goes to the treasury, which funds the swap.
+      const isTest = network === "testnet";
+      checkCashOutQuote(intent.quote, { depositAddress: intent.depositAddress, recipient: intent.recipient, destinationAsset: intent.destinationAsset, originAsset: pins.swapOrigin, amountIn: intent.amount, refundTo: isTest ? ctx.treasury : ctx.card });
+      if (!isTest && !SIGNATURE_FALSE_NEGATIVES.has(intent.destinationAsset)) {
+        const { verifyQuoteSignature } = await import("@defuse-protocol/one-click-sdk-typescript");
+        if (!verifyQuoteSignature(intent.quote as never)) throw new MessageRefused("We stopped this before signing, because the swap quote isn't signed by 1Click. Nothing was signed.");
+      }
+      checkMessage(messageHex, ctx, { kind: "sendUsdc", destination: isTest ? ctx.treasury : intent.depositAddress, amount: intent.amount });
+    } else if (intent.kind === "withdrawUsdc") {
+      checkMessage(messageHex, ctx, { kind: "sendUsdc", destination: intent.destination, amount: intent.amount });
+    } else {
+      checkMessage(messageHex, ctx, intent);
+    }
+  };
+
   return {
     accountId,
-    async signForCard(tokenId, messageHex) {
+    async signForCard(tokenId, messageHex, intent) {
+      await verify(tokenId, messageHex, intent);
       const res = (await account.callFunction({ contractId: health.contract, methodName: "sign_for_card", args: { token_id: tokenId, payload_hex: messageHex }, deposit: 1n, gas: 50n * TGAS })) as { signature?: number[] };
       if (!res?.signature || res.signature.length !== 64) throw new Error("The signing network returned no signature. Try again.");
       return res.signature.map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -116,6 +190,11 @@ export function privyWallet(health: Health, address: string, signRawHash: SignRa
 /** Testnet only: an account whose key lives in this browser. */
 export function openWallet(health: Health): Wallet {
   if (health.network !== "testnet") throw new Error("Browser-held keys are for the test network only.");
+  try {
+    localStorage.removeItem(SIGNED_OUT);
+  } catch {
+    /* private window */
+  }
   let secret = storedKey();
   if (!secret) {
     secret = KeyPair.fromRandom("ed25519").toString();

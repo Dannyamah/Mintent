@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, MotionConfig, useMotionValueEvent, useScroll } from "motion/react";
-import { ChevronDown, Download, KeyRound, LayoutGrid, LogOut, Mail, Package, X } from "lucide-react";
+import { ChevronDown, Download, KeyRound, LayoutGrid, LogOut, Mail, Package, Wallet as WalletIcon, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, short, type Health, type Pack, type Pull } from "./api";
@@ -11,7 +11,7 @@ import { NotFound, PackPage, SecurityPage } from "./Pages";
 import type { default as PrivyBridgeType, PrivyState } from "./privy";
 import { RevealPage } from "./Reveal";
 import { CopyButton, EASE, Sheet, Toasts, useToast } from "./ui";
-import { exportKey, hasStoredWallet, openWallet, type Wallet } from "./wallet";
+import { endTestSession, exportKey, hasStoredWallet, isTestSessionActive, openWallet, type Wallet } from "./wallet";
 import "./styles.css";
 
 function useRoute(): string {
@@ -35,7 +35,7 @@ const PrivyBridge = lazy(() => import("./privy").catch((e) => {
   return { default: (() => null) as unknown as typeof PrivyBridgeType };
 }));
 
-function SignInSheet({ health, privy, onClose, onEmail, onCreate }: { health: Health; privy: PrivyState | null; onClose: () => void; onEmail: () => void; onCreate: () => void }) {
+function SignInSheet({ health, privy, onClose, onPrivy, onCreate }: { health: Health; privy: PrivyState | null; onClose: () => void; onPrivy: (method: "email" | "wallet") => void; onCreate: () => void }) {
   const isTest = health.network === "testnet";
   return (
     <Sheet onClose={onClose} labelledBy="signin-title">
@@ -46,9 +46,10 @@ function SignInSheet({ health, privy, onClose, onEmail, onCreate }: { health: He
       <div className="stack">
         {PRIVY_APP_ID ? (
           <>
-            <p className="lede">Sign in with your email and you get a NEAR account. There's no seed phrase and no wallet to install.</p>
-            <button className="btn btn--primary btn--full" onClick={onEmail} disabled={!privy?.ready}><Mail size={16} aria-hidden="true" /> {privy?.ready ? "Continue with email" : "Loading sign-in…"}</button>
-            <p className="hint">Privy holds your account's key. You can export it from your account menu at any time.</p>
+            <p className="lede">Use your email, or connect a wallet you already have. You get a NEAR account with no seed phrase to manage.</p>
+            <button className="btn btn--primary btn--full" onClick={() => onPrivy("email")} disabled={!privy?.ready}><Mail size={16} aria-hidden="true" /> {privy?.ready ? "Continue with email" : "Loading sign-in…"}</button>
+            <button className="btn btn--ghost btn--full" onClick={() => onPrivy("wallet")} disabled={!privy?.ready}><WalletIcon size={16} aria-hidden="true" /> Connect a wallet</button>
+            <p className="hint">Either way you get a NEAR account, which owns your NFTs. Privy holds its key, and a connected wallet is how you sign in. You can export the key from your account menu at any time.</p>
           </>
         ) : !isTest && (
           <>
@@ -58,7 +59,7 @@ function SignInSheet({ health, privy, onClose, onEmail, onCreate }: { health: He
         )}
         {isTest && (
           <>
-            <button className={`btn btn--full ${PRIVY_APP_ID ? "btn--ghost" : "btn--primary"}`} onClick={onCreate}><KeyRound size={16} aria-hidden="true" /> Create my test account</button>
+            <button className={`btn btn--full ${PRIVY_APP_ID ? "btn--ghost" : "btn--primary"}`} onClick={onCreate}><KeyRound size={16} aria-hidden="true" /> {hasStoredWallet() ? "Continue with my test account" : "Create my test account"}</button>
             <p className="hint">A test account's key stays in this browser. No real money moves on the test network.</p>
           </>
         )}
@@ -67,7 +68,7 @@ function SignInSheet({ health, privy, onClose, onEmail, onCreate }: { health: He
   );
 }
 
-function AccountMenu({ wallet, privy }: { wallet: Wallet; privy: PrivyState | null }) {
+function AccountMenu({ wallet, privy, onSignOutTest }: { wallet: Wallet; privy: PrivyState | null; onSignOutTest: () => void }) {
   const isPrivy = privy?.wallet?.accountId === wallet.accountId;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -93,6 +94,7 @@ function AccountMenu({ wallet, privy }: { wallet: Wallet; privy: PrivyState | nu
       <AnimatePresence>
         {open && (
           <motion.div className="menu" initial={{ opacity: 0, y: -8, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={{ duration: 0.16 }}>
+            {isPrivy && privy?.loginWallet && <p className="hint menu__login">Signed in with {short(privy.loginWallet.address, 6)}</p>}
             <p className="eyebrow">NEAR account</p>
             <div className="menu__acct"><code>{short(wallet.accountId, 10)}</code><CopyButton text={wallet.accountId} label="Copy account" /></div>
             <a className="menu__item" href="#/dashboard" onClick={() => setOpen(false)}><LayoutGrid size={16} aria-hidden="true" /> Dashboard</a>
@@ -106,6 +108,7 @@ function AccountMenu({ wallet, privy }: { wallet: Wallet; privy: PrivyState | nu
                 </button>
               </>
             ) : (
+              <>
               <button
                 className="menu__item"
                 onClick={() => {
@@ -120,6 +123,10 @@ function AccountMenu({ wallet, privy }: { wallet: Wallet; privy: PrivyState | nu
               >
                 <Download size={16} aria-hidden="true" /> Back up test key
               </button>
+              <button className="menu__item" onClick={() => { setOpen(false); onSignOutTest(); toast("Signed out. Your test key stays in this browser."); }}>
+                <LogOut size={16} aria-hidden="true" /> Sign out
+              </button>
+              </>
             )}
           </motion.div>
         )}
@@ -128,7 +135,7 @@ function AccountMenu({ wallet, privy }: { wallet: Wallet; privy: PrivyState | nu
   );
 }
 
-function Nav({ wallet, privy, onSignIn, ready, route }: { wallet: Wallet | null; privy: PrivyState | null; onSignIn: () => void; ready: boolean; route: string }) {
+function Nav({ wallet, privy, onSignIn, onSignOutTest, ready, route }: { wallet: Wallet | null; privy: PrivyState | null; onSignIn: () => void; onSignOutTest: () => void; ready: boolean; route: string }) {
   const { scrollY } = useScroll();
   const [scrolled, setScrolled] = useState(false);
   useMotionValueEvent(scrollY, "change", (y) => setScrolled(y > 24));
@@ -146,7 +153,7 @@ function Nav({ wallet, privy, onSignIn, ready, route }: { wallet: Wallet | null;
       <nav aria-label="Main">
         <a href="#/" onClick={goPacks}><Package size={16} aria-hidden="true" /><span>Packs</span></a>
         <a href="#/dashboard" className={route === "/dashboard" ? "is-on" : ""}><LayoutGrid size={16} aria-hidden="true" /><span>Dashboard</span></a>
-        {wallet ? <AccountMenu wallet={wallet} privy={privy} />
+        {wallet ? <AccountMenu wallet={wallet} privy={privy} onSignOutTest={onSignOutTest} />
           : privy?.creating ? <button className="btn btn--small" disabled>Setting up…</button>
           : privy?.error ? <button className="btn btn--small btn--primary" onClick={privy.retry} title={privy.error}>Try again</button>
           : <button className="btn btn--small btn--primary" onClick={onSignIn} disabled={!ready}>Sign in</button>}
@@ -172,7 +179,7 @@ function App() {
   useEffect(() => {
     api.health().then((h) => {
       setHealth(h);
-      if (h.network === "testnet" && hasStoredWallet()) setTestWallet(openWallet(h));
+      if (h.network === "testnet" && isTestSessionActive()) setTestWallet(openWallet(h));
     }, () => setFatal("Mintent's service isn't reachable right now. Try again in a moment."));
     api.gallery().then(setPulls, () => setPulls([]));
     api.packs().then(setPacks, () => undefined);
@@ -188,6 +195,14 @@ function App() {
   useEffect(() => {
     if (privy?.error) setPending(null);
   }, [privy?.error]);
+
+  // One account at a time. Signing in with Privy ends a test session, so signing out later really signs out.
+  useEffect(() => {
+    if (privy?.wallet && testWallet) {
+      endTestSession();
+      setTestWallet(null);
+    }
+  }, [privy?.wallet, testWallet]);
 
   const clearPending = useCallback(() => setPending(null), []);
 
@@ -206,7 +221,7 @@ function App() {
     if (packMatch) return <PackPage code={packMatch[1]} onPick={pick} />;
     if (route === "/security") return <SecurityPage />;
     if (!health) return <main className="page" />;
-    if (cardMatch) return <CardPage key={cardMatch[1]} tokenId={cardMatch[1]} health={health} wallet={wallet} />;
+    if (cardMatch) return <CardPage key={cardMatch[1]} tokenId={cardMatch[1]} health={health} wallet={wallet} loginWallet={privy?.wallet ? privy.loginWallet : null} />;
     if (revealMatch) return <RevealPage key={revealMatch[1]} tokenId={revealMatch[1]} />;
     if (route === "/dashboard") return <Dashboard health={health} wallet={wallet} onSignIn={() => setSignIn("plain")} />;
     return <NotFound />;
@@ -222,7 +237,7 @@ function App() {
             <PrivyBridge appId={PRIVY_APP_ID} health={health} onState={setPrivy} onLoginCancelled={clearPending} />
           </Suspense>
         )}
-        <Nav wallet={wallet} privy={privy} onSignIn={() => setSignIn("plain")} ready={Boolean(health)} route={route} />
+        <Nav wallet={wallet} privy={privy} onSignIn={() => setSignIn("plain")} onSignOutTest={() => { endTestSession(); setTestWallet(null); }} ready={Boolean(health)} route={route} />
         {fatal && <p className="error page" role="alert">{fatal}</p>}
 
         <AnimatePresence mode="wait">
@@ -256,10 +271,10 @@ function App() {
               health={health}
               privy={privy}
               onClose={() => setSignIn(null)}
-              onEmail={() => {
+              onPrivy={(method) => {
                 if (signIn !== "plain") setPending(signIn);
                 setSignIn(null);
-                privy?.login();
+                privy?.login(method);
               }}
               onCreate={() => {
                 setTestWallet(openWallet(health));
@@ -274,6 +289,7 @@ function App() {
               pack={picked}
               health={health}
               wallet={wallet!}
+              loginWallet={privy?.wallet ? privy.loginWallet : null}
               onClose={() => setPicked(null)}
               onDone={(id) => {
                 setPicked(null);

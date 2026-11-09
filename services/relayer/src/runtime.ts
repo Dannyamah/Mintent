@@ -1,7 +1,7 @@
 // Wires the relayer to real networks.
 import { Connection, PublicKey, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import type { Account } from "near-api-js";
-import { CcClient, confirm, faucetAirdropIx, loadConfig, MintentContract, type MintentConfig } from "@mintent/shared";
+import { ata, CcClient, confirm, createAtaIdempotentIx, faucetAirdropIx, loadConfig, MintentContract, transferCheckedIx, type MintentConfig } from "@mintent/shared";
 import { createBackend } from "@mintent/checkout";
 import { Db } from "./db.js";
 import { SolanaChain, type Deps, type Sponsor } from "./deps.js";
@@ -77,6 +77,20 @@ export async function createRuntime(opts: { contractId: string; relayer: Account
       toppingUp = false;
     }
   };
+  // Testnet only: see CardOps.prepareCashOut.
+  const fundTestCashOut = async (depositAddress: string, amount: bigint) => {
+    const mint = new PublicKey(config.checkoutMint);
+    const deposit = new PublicKey(depositAddress);
+    const instructions = [await createAtaIdempotentIx(chain.treasury, deposit, mint), transferCheckedIx(await ata(chain.treasury, mint), mint, await ata(deposit, mint), chain.treasury, amount, 6)];
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      const { blockhash } = await conn.getLatestBlockhash("confirmed");
+      const tx = new VersionedTransaction(new TransactionMessage({ payerKey: chain.treasury, recentBlockhash: blockhash, instructions }).compileToV0Message());
+      tx.addSignature(chain.treasury, await contract.signForTreasury(tx.message.serialize()));
+      if (!(await conn.isBlockhashValid(blockhash, { commitment: "processed" })).value) continue; // MPC signing outlasted it
+      return confirm(conn, await conn.sendRawTransaction(tx.serialize()));
+    }
+    throw new Error("MPC signing keeps outlasting the blockhash");
+  };
   return {
     config,
     db: new Db(opts.dbPath ?? ":memory:"),
@@ -86,7 +100,7 @@ export async function createRuntime(opts: { contractId: string; relayer: Account
     chain,
     sponsor: nearSponsor(opts.relayer),
     warmImages,
-    ...(config.network === "testnet" ? { topUpTestTreasury } : {}),
+    ...(config.network === "testnet" ? { topUpTestTreasury, fundTestCashOut } : {}),
     log,
   };
 }

@@ -2,11 +2,43 @@
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, ArrowLeftRight, Check, ExternalLink, Lock, ShieldCheck, Truck, Wallet, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { api, insured, nearAcct, rarityOf, short, solanaAddr, solanaTx, statusLabel, timeLeft, units, usd, type Card, type Health, type Op } from "./api";
+import { addressFor, AssetPicker, chainLabel, rankAssets } from "./Checkout";
+import type { LoginWallet } from "./privy";
+import { api, insured, nearAcct, rarityOf, short, solanaAddr, solanaTx, statusLabel, timeLeft, units, usd, type Card, type Health, type Op, type PayAsset } from "./api";
 import { CopyButton, EASE, RarityBadge, Skeleton, Tilt, useNow, useToast } from "./ui";
-import { refusal, type Wallet as WalletT } from "./wallet";
+import { sellbackPrice } from "./verifyMessage";
+import { refusal, type SigningIntent, type Wallet as WalletT } from "./wallet";
 
-type Action = "sellback" | "withdrawCard" | "withdrawProceeds" | "transfer";
+type Action = "sellback" | "withdrawCard" | "cashOut" | "transfer";
+const DIRECT = "direct"; // USDC on Solana is already what the NFT holds, so it needs no swap.
+
+interface CashOutDetail { symbol: string; chain: string; decimals: number; recipient: string; amountOut: string; amountOutFormatted?: string; minAmountOut?: string; timeEstimateSeconds?: number }
+const coin = (units: string | null | undefined, d: CashOutDetail) => (Number(units ?? 0) / 10 ** d.decimals).toLocaleString("en-US", { maximumFractionDigits: 6 });
+
+/** Follows a cash-out from "sent" to "delivered" or "refunded". */
+function CashOutProgress({ opId, isTest, onDone }: { opId: string; isTest: boolean; onDone: () => void }) {
+  const [op, setOp] = useState<Op | null>(null);
+  useEffect(() => {
+    let live = true;
+    const poll = () => api.op(opId).then((o) => live && setOp(o), () => undefined);
+    void poll();
+    const t = setInterval(poll, 3000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [opId]);
+  const status = op?.swap_status ?? "PENDING_DEPOSIT";
+  const finished = ["SUCCESS", "REFUNDED", "FAILED"].includes(status);
+  useEffect(() => {
+    if (finished) onDone();
+  }, [finished, onDone]);
+  if (!op) return null;
+  const d = JSON.parse(op.detail) as CashOutDetail;
+  if (status === "SUCCESS") return <p className="ok" role="status" data-cashout="delivered"><Check size={17} aria-hidden="true" /> <span>Delivered: {coin(op.swap_amount_out ?? d.amountOut, d)} {d.symbol} on {chainLabel(d)}, to {short(d.recipient, 8)}.</span></p>;
+  if (finished) return <p className="error" role="alert" data-cashout="refunded">The swap didn't complete, so the money was refunded{isTest ? " to the test treasury" : " to this NFT's address, where you can cash it out again"}.</p>;
+  return <div className="signing" role="status" data-cashout="swapping"><span className="spinner spinner--lg" aria-hidden="true" /><div><strong>Swapping to {d.symbol} on {chainLabel(d)}</strong><p className="hint">Your USDC has been sent to the swap. Usually under a minute, and you can leave this page.</p></div></div>;
+}
 
 function ProofRow({ i, ok, label, children, note }: { i: number; ok: boolean; label: string; children: React.ReactNode; note?: React.ReactNode }) {
   return (
@@ -73,7 +105,7 @@ const ACTIONS: { key: Action; icon: React.ReactNode; title: string; desc: string
   { key: "withdrawCard", icon: <Truck size={20} aria-hidden="true" />, title: "Withdraw card to my wallet", desc: "To list it, or redeem the slab" },
 ];
 
-export function CardPage({ tokenId, health, wallet }: { tokenId: string; health: Health; wallet: WalletT | null }) {
+export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: string; health: Health; wallet: WalletT | null; loginWallet: LoginWallet | null }) {
   const [card, setCard] = useState<Card | null>(null);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [action, setAction] = useState<Action | null>(null);
@@ -82,6 +114,9 @@ export function CardPage({ tokenId, health, wallet }: { tokenId: string; health:
   const [status, setStatus] = useState<{ text: string; since: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ text: string; tx?: string } | null>(null);
+  const [payouts, setPayouts] = useState<PayAsset[]>([]);
+  const [payout, setPayout] = useState(DIRECT);
+  const [swapping, setSwapping] = useState<string | null>(null);
   const toast = useToast();
   const now = useNow(15_000);
 
@@ -118,13 +153,22 @@ export function CardPage({ tokenId, health, wallet }: { tokenId: string; health:
     setAction(null);
     setOp(null);
     setDestination("");
+    setPayout(DIRECT);
   };
+
+  const chosen = payouts.find((a) => a.assetId === payout);
+  const usdcOnSolana: PayAsset = { assetId: DIRECT, symbol: "USDC", chain: "sol", decimals: 6 } as PayAsset;
+  const payoutChain = chosen?.chain ?? "sol";
 
   const prepare = async (a: Action) => {
     setAction(a);
     setError(null);
     setDone(null);
     setOp(null);
+    if (a === "cashOut" && !payouts.length) {
+      api.cashOutAssets().then((list) => setPayouts(rankAssets(list).filter((x) => !(x.chain === "sol" && x.symbol === "USDC"))), () => undefined);
+    }
+    if (a === "cashOut") setDestination(addressFor("sol", loginWallet));
     if (a === "sellback") {
       setStatus({ text: "Getting Collector Crypt's offer…", since: Date.now() });
       try {
@@ -138,9 +182,9 @@ export function CardPage({ tokenId, health, wallet }: { tokenId: string; health:
     }
   };
 
-  const signAndSend = async (prepared: Op, text: string) => {
-    setStatus({ text: "Signing on NEAR", since: Date.now() });
-    const sig = await wallet!.signForCard(tokenId, prepared.message_hex);
+  const signAndSend = async (prepared: Op, intent: SigningIntent, text: string) => {
+    setStatus({ text: "Checking the transaction, then signing on NEAR", since: Date.now() });
+    const sig = await wallet!.signForCard(tokenId, prepared.message_hex, intent);
     setStatus({ text: "Signed. Sending on Solana", since: Date.now() });
     const finished = await api.finalize(prepared.id, sig);
     await load();
@@ -160,24 +204,42 @@ export function CardPage({ tokenId, health, wallet }: { tokenId: string; health:
         toast("NFT transferred");
         reset();
       } else if (action === "sellback") {
-        const price = Number(JSON.parse(op!.detail).price) / 1e6;
-        await signAndSend(op!, `Sold back. ${usd(price)} USDC is now held by this NFT's address. Withdraw it whenever you like.`);
+        const units = sellbackPrice(op!.message_hex);
+        if (units === null) throw new Error("no price in this offer");
+        const price = Number(units) / 1e6;
+        await signAndSend(op!, { kind: "sellback", price: units }, `Sold back. ${usd(price)} USDC is now held by this NFT's address. Withdraw it whenever you like.`);
       } else if (action === "withdrawCard") {
         setStatus({ text: "Preparing the transfer", since: Date.now() });
-        await signAndSend(await api.withdrawCard(tokenId, wallet!.accountId, destination.trim()), "The card is in your wallet. You can now redeem the physical card on Collector Crypt's site, or list it on a marketplace.");
-      } else if (action === "withdrawProceeds") {
+        await signAndSend(await api.withdrawCard(tokenId, wallet!.accountId, destination.trim()), { kind: "withdrawCard", destination: destination.trim() }, "The card is in your wallet. You can now redeem the physical card on Collector Crypt's site, or list it on a marketplace.");
+      } else if (action === "cashOut" && payout === DIRECT) {
         setStatus({ text: "Preparing the withdrawal", since: Date.now() });
-        await signAndSend(await api.withdrawProceeds(tokenId, wallet!.accountId, destination.trim()), "The USDC is on its way to your address.");
+        await signAndSend(await api.withdrawProceeds(tokenId, wallet!.accountId, destination.trim()), { kind: "withdrawUsdc", destination: destination.trim(), amount: card.proceedsUnits }, "The USDC is on its way to your address.");
+      } else if (action === "cashOut" && op) {
+        const prepared = op;
+        const d = JSON.parse(prepared.detail) as { depositAddress: string; quote: unknown };
+        await signAndSend(prepared, { kind: "cashOut", recipient: destination.trim(), destinationAsset: payout, amount: card.proceedsUnits, depositAddress: d.depositAddress, quote: d.quote }, "Your USDC has been sent to the swap.");
+        setSwapping(prepared.id);
+      } else if (action === "cashOut") {
+        // Two steps: show what they'll receive first, and only ask for a signature after that.
+        setStatus({ text: "Getting a quote", since: Date.now() });
+        try {
+          setOp(await api.cashOut(tokenId, wallet!.accountId, payout, destination.trim()));
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
       }
     } catch (e) {
       setError(refusal(e));
+      setStatus(null);
       await load();
     } finally {
       setStatus(null);
     }
   };
 
-  const quoted = op && action === "sellback" ? Number(JSON.parse(op.detail).price) / 1e6 : null;
+  // Read from the message itself, so this is the number that gets signed.
+  const quotedUnits = op && action === "sellback" ? sellbackPrice(op.message_hex) : null;
+  const quoted = quotedUnits === null ? null : Number(quotedUnits) / 1e6;
 
   return (
     <motion.main className={`page card-page card-page--${rarity}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -210,6 +272,7 @@ export function CardPage({ tokenId, health, wallet }: { tokenId: string; health:
           </AnimatePresence>
           {error && <p className="error" role="alert">{error}</p>}
           {status && <SigningProgress text={status.text} since={status.since} />}
+          {swapping && <CashOutProgress opId={swapping} isTest={health.network === "testnet"} onDone={load} />}
 
           {s === "Exiting" && <p className="note"><Lock size={15} aria-hidden="true" /> This card is leaving this NFT, so the NFT can't be transferred until that's settled.</p>}
           {lockedMinutes > 0 && s !== "Exiting" && <p className="note"><Lock size={15} aria-hidden="true" /> NFT transfers are locked for about {lockedMinutes} more minute{lockedMinutes === 1 ? "" : "s"}. A recent signature could still be used, and the lock protects whoever gets this NFT next.</p>}
@@ -228,9 +291,9 @@ export function CardPage({ tokenId, health, wallet }: { tokenId: string; health:
           {isOwner && !action && !busy && (
             <div className="actions-grid">
               {proceeds > 0 && (
-                <motion.button whileHover={{ y: -3 }} whileTap={{ scale: 0.98 }} className="action action--primary" onClick={() => prepare("withdrawProceeds")}>
+                <motion.button whileHover={{ y: -3 }} whileTap={{ scale: 0.98 }} className="action action--primary" onClick={() => prepare("cashOut")}>
                   <Wallet size={20} aria-hidden="true" />
-                  <span><strong>Withdraw {usd(proceeds)} USDC</strong><small>Held by this NFT's address</small></span>
+                  <span><strong>Cash out {usd(proceeds)} USDC</strong><small>To any coin, on any chain</small></span>
                 </motion.button>
               )}
               {available.map((a) => (
@@ -246,22 +309,38 @@ export function CardPage({ tokenId, health, wallet }: { tokenId: string; health:
             {isOwner && action && !busy && (action !== "sellback" || op) && (
               <motion.div className="confirm panel" initial={{ opacity: 0, y: 14, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.28, ease: EASE }}>
                 <button className="icon-btn confirm__close" onClick={reset} aria-label="Cancel"><X size={16} aria-hidden="true" /></button>
+                {action === "sellback" && quoted === null && <p className="error" role="alert">This offer can't be read, so it can't be signed. Please try again.</p>}
                 {action === "sellback" && quoted !== null && <p>Collector Crypt offers <strong>{usd(quoted)} USDC</strong> for this card. The card goes back to them, and the money lands in this NFT's address. You can't undo this.</p>}
                 {action === "withdrawCard" && <p>Moves the real card to your own Solana wallet. You'll need that wallet to redeem the physical card on Collector Crypt's site. This NFT will no longer hold a card.</p>}
-                {action === "withdrawProceeds" && <p>Sends <strong>{usd(proceeds)} USDC</strong> to a Solana address you choose.</p>}
+                {action === "cashOut" && !op && <>
+                  <p>Cash out <strong>{usd(proceeds)} USDC</strong> as any coin, on any chain.</p>
+                  <AssetPicker legend="Receive" assets={[usdcOnSolana, ...payouts]} value={payout} onChange={(id) => {
+                    setPayout(id);
+                    setDestination(addressFor(id === DIRECT ? "sol" : payouts.find((a) => a.assetId === id)?.chain, loginWallet));
+                  }} />
+                </>}
+                {action === "cashOut" && op && (() => {
+                  const d = JSON.parse(op.detail) as CashOutDetail;
+                  return (
+                    <div className="stack" data-cashout="quote">
+                      <p>You send <strong>{usd(proceeds)} USDC</strong> and receive about <strong>{coin(d.amountOut, d)} {d.symbol}</strong> on {chainLabel(d)}{d.minAmountOut ? `, and at least ${coin(d.minAmountOut, d)} ${d.symbol}` : ""}.</p>
+                      <p className="hint">To <code>{d.recipient}</code>{d.timeEstimateSeconds ? `. Takes about ${Math.max(1, Math.round(d.timeEstimateSeconds / 60))} min` : ""}. If the swap can't complete, the money is refunded{health.network === "testnet" ? " to the test treasury" : " to this NFT's address"}.</p>
+                    </div>
+                  );
+                })()}
                 {action === "transfer" && <p>The new owner controls the card from the moment this completes, and you lose access. Nothing moves on Solana.</p>}
 
                 {action !== "sellback" && (
-                  <div className="field">
-                    <label htmlFor="dest">{action === "transfer" ? "New owner's NEAR account" : "Your Solana address"}</label>
+                  <div className="field" hidden={action === "cashOut" && Boolean(op)}>
+                    <label htmlFor="dest">{action === "transfer" ? "New owner's NEAR account" : `Your ${chainLabel({ chain: action === "cashOut" ? payoutChain : "sol" })} address`}</label>
                     <input id="dest" value={destination} onChange={(e) => setDestination(e.target.value)} autoComplete="off" spellCheck={false} />
                   </div>
                 )}
                 <div className="actions">
-                  <button className="btn btn--primary" disabled={action !== "sellback" && !destination.trim()} onClick={confirm}>Confirm</button>
+                  <button className="btn btn--primary" disabled={(action !== "sellback" && !destination.trim()) || (action === "sellback" && quoted === null)} onClick={confirm}>{action === "cashOut" && payout !== DIRECT && !op ? "Get quote" : "Confirm"}</button>
                   <button className="btn btn--ghost" onClick={reset}>Cancel</button>
                 </div>
-                {action !== "transfer" && <p className="hint">Confirming locks NFT transfers for 5 minutes.</p>}
+                {action !== "transfer" && (action !== "cashOut" || payout === DIRECT || op) && <p className="hint">Confirming locks NFT transfers for 5 minutes.</p>}
               </motion.div>
             )}
           </AnimatePresence>

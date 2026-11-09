@@ -11,6 +11,28 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-029 · 9 Nov · The app checks every message before signing; payment proof no longer needs a reported hash; mainnet demo uses the $25 pack
+
+- **Signing check:** the wallet's signing function parses the Solana message and refuses unless it does exactly what the owner asked, with the destination they typed. No screen can skip it. It reads the NFT's owner, card, addresses and Mintent's nonce accounts from NEAR through pinned RPCs, not from the relayer. It refuses lookup tables, extra steps and anything it can't fully read. The sell-back price on screen now comes from the message itself.
+- **Pinned contract:** `VITE_MINTENT_CONTRACT` fixes the contract at build time. **A mainnet build refuses to sign without it.** A testnet build may follow the relayer, so anyone can run the demo.
+- **Cash-out quotes:** the app checks the quote names the recipient, coin, amount and refund address, and on mainnet that 1Click signed it. BTC is the exception, because the SDK rejects 1Click's own BTC quotes. Limits are in `THREAT-MODEL.md`.
+- **Payment proof fallback:** 1Click's docs don't say whether a confidential swap reports the payout hash. If the reported hash doesn't prove payment, the relayer looks for one transaction on the treasury's USDC account, since the order began, for at least the full amount, that no other order has claimed. It still needs 1Click to say SUCCESS. Each transaction can pay for one order only. It found the right transaction for 6 of 6 recent real orders on devnet. **Whether mainnet reports the hash is still unknown, and the mainnet run will show it.**
+- **Budget (your call):** the mainnet demo uses the $25 pack instead of $50, and `pokemon_25` is now the mainnet default. You asked for $30. My estimate is about $40, because deploying the contract costs about 3 NEAR in storage. **Still needs your decision.**
+- **RPC:** a paid plan isn't needed for the demo. Helius's free tier lists archival data, and NEAR has free public RPCs.
+- **Status:** Adopted.
+
+### D-028 · 9 Nov · Design confirmed; any-chain payment, cash-out to any chain, and email or wallet sign-in
+
+- **Your decisions:** pay from any chain, NFT on NEAR, card on Solana, cash out to any chain. Users sign in with email or connect a wallet they already have. This confirms D-001.
+- **Wallet sign-in:** through Privy. A connected wallet (MetaMask, Coinbase Wallet, Rainbow and others) is the login, and Privy holds the key of a NEAR account that owns the NFTs. The wallet doesn't own the NFT, and the app says so. Phantom needs Solana wallet login turned on in the Privy dashboard. Wallets native to NEAR (HOT, Meteor) aren't supported, which would need near-connect.
+- **Sign-out:** every account type can sign out. Signing out of a test account keeps its key, because that's the only copy.
+- **Cash-out:** the NFT's USDC pays a 1Click deposit address from the NFT's own Solana address, and the swap pays out on the chosen chain. A refund returns to the NFT's address, so it stays with whoever owns the NFT. The owner sees the amount, coin, chain and recipient before signing. USDC on Solana skips the swap. The card itself stays on Solana: withdrawing it still needs a Solana address.
+- **Testnet differs in one way:** sell-back money is Collector Crypt's USDC-Dev, which Tidepool doesn't accept. So on testnet it goes to the treasury, and the treasury funds the deposit in Tidepool's USDC, with refunds going to the treasury. **The mainnet transaction shape has only been unit-tested, and needs proving on the mainnet run.**
+- **Payment:** the testnet app now offers Tidepool's real chains. Refund addresses are checked per chain before any quote. The checkout handles underpayment and expired quotes. API errors reach customers as plain messages.
+- **USDC on Solana as a payment:** Tidepool refuses to swap a coin for itself, so it's hidden on testnet. Mainnet 1Click quotes it (about 1% cost, dry quote on 9 Nov), so it stays on mainnet, unproven with real money.
+- **Trust:** the relayer builds every message an owner signs. That gap is closed by D-029.
+- **Status:** Adopted.
+
 ### D-027 · 9 Nov · Stuck paid orders recover by themselves
 
 - **Why:** an order went to `needs_attention` after 12 failed attempts, and with a 5 s loop that's about a minute. A short RPC, Collector Crypt or treasury outage would have stranded a paid mainnet order for good.
@@ -25,7 +47,7 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 - **Decision:** the web app calls Privy's SDK directly (`@privy-io/react-auth` 3.51.3, `createWallet({ chainType: "near" })`, `useSignRawHash`). This replaces the "via near-connect" part of D-005.
 - **Why:** NEAR's guide recommends direct Privy for a web-style app with social login. near-connect would add a wallet manifest, a separate signing page and a client ID, and its only gain is third-party wallets, which Mintent's buyers don't need.
-- **Email only (your call, 9 Nov):** no passkey option. This also drops the passkey part of D-005.
+- **Email only (your call, 9 Nov):** no passkey option. This also drops the passkey part of D-005. Wallet sign-in was added later the same day (D-028).
 - **Impact:** Keys are held by Privy, and users can export them from the account menu. The test account stays on testnet only and is refused on mainnet. The SDK loads as a separate 399 kB (gzipped) chunk, so it doesn't delay the shop.
 - **Before mainnet:** turn off Privy test accounts, because their fixed login code would let anyone sign in to them, and restrict allowed domains.
 - **Status:** Adopted. Proven on testnet with a real login and live signing (see `EVIDENCE.md`).
