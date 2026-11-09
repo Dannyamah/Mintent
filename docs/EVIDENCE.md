@@ -125,6 +125,10 @@ An XRP quote failed with a 400 from 1Click, possibly because of the placeholder 
 
 Ben withdrew token 19's $19.55 sell-back: $19.30 reached his address, and the treasury's USDC rose by exactly $0.25 in the same transaction, read from Solana. Token 20's $17.85 was cashed out to Base: after the $0.25 fee, $17.60 went into the swap and 17.55424 USDC arrived on Base Sepolia. On testnet both parts of a cash-out go to the treasury, which then funds the swap with the owner's share. `apps/web/e2e/verify.test.mts` shows the app refuses a higher fee, a fee sent elsewhere, or a transfer with no fee.
 
+## Hosted on Railway, 9 Nov
+
+The two-user flow ran against the hosted testnet site, https://web-testnet-production-2eb9.up.railway.app. Ana bought token 22 ($28.47). Ben received the NFT, sold it back for $23.80 and withdrew it. 18 of 19 checks passed. The miss was timing: the pack took 4.8 s to become openable, against a 4 s target, probably because the hosted relayer is further from the RPCs it reads. Wallet sign-in through Privy's real service also works on the hosted site. The hosted mainnet site, https://web-mainnet-production-b5e0.up.railway.app, shows the real-money banner and real pulls, and offers no test account. That check created no orders.
+
 ## What has not been shown
 
 - **No mainnet run.** The contract is deployed at `mintent.xinju.near`, but holds no tokens yet. One real, unsigned $25 mainnet purchase transaction passed `assertSafePackTx` on 9 Nov (`scripts/src/mainnet-pack-check.ts`), with nothing signed or sent. No purchase, sell-back or cash-out has run on mainnet.

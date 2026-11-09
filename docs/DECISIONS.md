@@ -18,7 +18,8 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 - **Free test packs are capped:** 3 per visitor and per account a day, 40 a day across everyone. The testnet relayer also refills itself: it recycles test USDC to the funder and buys devnet SOL for the treasury.
 - **Browser access:** only our own site may call each relayer (`WEB_ORIGIN`, comma-separated).
 - **Cards only (bug found 9 Nov):** the mainnet wall was showing watches and comics, and the shop listed sealed-product and watch packs under "Graded Card Pack". The shop, wall and orders now only take Collector Crypt's standard graded-card machines (`pokemon_<price>`), the ones we've tested. Anything else is refused, including through the API.
-- **Status:** Adopted. Deployed once you've set up Railway.
+- **Deployed 9 Nov:** testnet at https://web-testnet-production-2eb9.up.railway.app and mainnet at https://web-mainnet-production-b5e0.up.railway.app. The local relayers were stopped, so only the hosted testnet relayer works the test contract.
+- **Status:** Adopted.
 
 ### D-031 · 9 Nov · Exit fee on USDC withdrawals and cash-outs
 

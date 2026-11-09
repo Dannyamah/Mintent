@@ -15,6 +15,8 @@ Built at NEAR HACKATHON for the `nfts` track ("NFTs that do something"): each NF
 
 > **Status, 9 Nov 2026: everything below has run on public test networks with no real money. Nothing has run on mainnet yet.** See [Limits](#limits).
 
+**Try it:** [testnet, free](https://web-testnet-production-2eb9.up.railway.app) · [mainnet, real money](https://web-mainnet-production-b5e0.up.railway.app)
+
 ## Check it in 2 minutes, with no accounts or keys
 
 Needs Node 22.22 or newer and pnpm.
