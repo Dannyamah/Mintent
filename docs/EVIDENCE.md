@@ -123,7 +123,7 @@ An XRP quote failed with a 400 from 1Click, possibly because of the placeholder 
 
 ## What has not been shown
 
-- **No mainnet run.** Collector Crypt's mainnet purchase transaction hasn't been inspected by `assertSafePackTx` yet, and a mainnet sell-back hasn't been built.
+- **No mainnet run.** One real, unsigned $25 mainnet purchase transaction passed `assertSafePackTx` on 9 Nov (`scripts/src/mainnet-pack-check.ts`), with nothing signed or sent. No purchase, sell-back or cash-out has run on mainnet.
 - **Payment on testnet is not spent on the pack.** Tidepool's test USDC isn't the token Collector Crypt's devnet charges, so the treasury pays from pre-stocked USDC-Dev. On mainnet, both are real USDC.
 - **Sell-back timing on mainnet.** Devnet offered a 30-day window, Collector Crypt's docs say 72 hours, and 8 of 8 recent mainnet pulls returned `available: false` in a read-only check on 8 Nov. The cause is unknown; those cards may already have been sold or withdrawn.
 - **Any-chain payment and cash-out with real money.** On test networks, payment ran from Base and NEAR, and cash-outs to NEAR and Base. Other chains have been quoted only. The mainnet cash-out, where the NFT's address pays the deposit directly, has only been unit-tested: on testnet the treasury funds the deposit, because sell-back money there is a token Tidepool doesn't accept.

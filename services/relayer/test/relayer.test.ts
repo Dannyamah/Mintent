@@ -4,7 +4,7 @@ import { beforeEach, test } from "node:test";
 import { PublicKey, TransactionInstruction, TransactionMessage, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import { looksLikeAddress, MockBackend, quoteErrorForCustomer } from "@mintent/checkout";
-import { ata, COMPUTE_BUDGET, MEMO_PROGRAM, MPL_CORE, realRpcError, TOKEN_PROGRAM, transferCheckedIx, withRealErrors, type CardView } from "@mintent/shared";
+import { ata, COMPUTE_BUDGET, CONFIGS, loadConfig, MEMO_PROGRAM, MPL_CORE, realRpcError, TOKEN_PROGRAM, transferCheckedIx, withRealErrors, type CardView } from "@mintent/shared";
 import { CardOps, Db, isSolanaSignature, OrderPipeline, reconcile, sponsorAmounts, type Chain, type ContractApi, type Deps } from "../src/index.ts";
 
 function keypair() {
@@ -566,6 +566,14 @@ test("a refused quote gives the customer a plain message, never the raw API resp
   });
   assert.match(quoteErrorForCustomer(new Error('400: {"message":"Amount is too low for bridge"}')), /too small/);
   assert.match(quoteErrorForCustomer(new Error('400: {"message":"invalid recipient"}')), /address/);
+});
+
+test("a relayer is never pointed at another network's Solana RPC", () => {
+  const mainnetUrl = "https://mainnet.helius-rpc.com/?api-key=x";
+  assert.equal(loadConfig({ NEAR_NETWORK: "testnet", SOLANA_RPC_URL: mainnetUrl }).solanaRpc, CONFIGS.testnet.solanaRpc);
+  assert.equal(loadConfig({ NEAR_NETWORK: "mainnet", SOLANA_RPC_URL: mainnetUrl }).solanaRpc, mainnetUrl);
+  assert.equal(loadConfig({ NEAR_NETWORK: "testnet", SOLANA_RPC_URL: "" }).solanaRpc, CONFIGS.testnet.solanaRpc);
+  assert.throws(() => loadConfig({ NEAR_NETWORK: "mainnet", SOLANA_RPC_URL: "https://devnet.helius-rpc.com/?api-key=x" }), /test network/);
 });
 
 test("address formats", () => {

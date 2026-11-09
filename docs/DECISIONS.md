@@ -11,6 +11,13 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-030 · 9 Nov · Mainnet accounts created; a real purchase passes the safety check
+
+- **Accounts (you created them, 9 Nov):** contract `mintent.xinju.near` (3.5 NEAR), relayer `relayer.xinju.near` (1.5 NEAR), both funded from `xinju.near`. Their keys are in `~/.near-credentials/mainnet/` and match the chain. The contract isn't deployed yet.
+- **Addresses these names lead to:** treasury `A5SBNb1f6ECxXLWDoHk2onu6YdNuSjdeANAxYXqJj1k5`. Derived, so they change if the contract's name changes.
+- **Purchase check:** `scripts/src/mainnet-pack-check.ts` got a real unsigned $25 purchase from Collector Crypt, and `assertSafePackTx` passed it. Nothing was signed or sent. The transaction has Collector Crypt as fee payer, with no lookup tables.
+- **Status:** Adopted. Deploying the contract still needs your approval.
+
 ### D-029 · 9 Nov · The app checks every message before signing; payment proof no longer needs a reported hash; mainnet demo uses the $25 pack
 
 - **Signing check:** the wallet's signing function parses the Solana message and refuses unless it does exactly what the owner asked, with the destination they typed. No screen can skip it. It reads the NFT's owner, card, addresses and Mintent's nonce accounts from NEAR through pinned RPCs, not from the relayer. It refuses lookup tables, extra steps and anything it can't fully read. The sell-back price on screen now comes from the message itself.

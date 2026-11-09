@@ -27,7 +27,7 @@ pnpm verify:pull mintent-con-mw7mmwr5.testnet 1   # withdrawn to the owner's own
 
 ```bash
 pnpm --filter @mintent/checkout test   # 7 pass: checkout
-pnpm --filter @mintent/relayer test    # 58 pass: order pipeline, sell-back, cash-out, recovery
+pnpm --filter @mintent/relayer test    # 59 pass: order pipeline, sell-back, cash-out, recovery
 pnpm test:web                          # 14 pass: the signing check refuses tampered messages; Privy signer matches a local key
 pnpm test:contracts                    # contract, including the attack tests; needs Rust and cargo-near
 ```
@@ -104,7 +104,7 @@ node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 
 ## Limits
 
-- **No mainnet run yet.** Collector Crypt's mainnet purchase transaction hasn't been inspected by our checks, and a real mainnet sell-back hasn't happened.
+- **No mainnet run yet.** One real, unsigned mainnet purchase transaction passed our safety check, with nothing signed or sent. No purchase or sell-back has run on mainnet.
 - **Test payments aren't spent on the pack.** Tidepool's test USDC isn't the token Collector Crypt's devnet charges, so the testnet treasury pays from pre-stocked test funds. On mainnet both are real USDC.
 - **Any-chain money hasn't moved for real yet.** On test networks, payment ran from Base and NEAR, and cash-outs to NEAR and Base. Other chains have live mainnet quotes only ([evidence](docs/EVIDENCE.md)).
 - **Payment proof on mainnet is unconfirmed.** Mainnet swaps are confidential. If 1Click doesn't report the payout's hash, the relayer finds the payment on the treasury's account instead, which has only run against test networks.

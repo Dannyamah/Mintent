@@ -61,10 +61,15 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const network = (env.NEAR_NETWORK || "testnet") as NearNetwork;
   const base = CONFIGS[network];
   if (!base) throw new Error(`unknown NEAR_NETWORK ${network}`);
+  // .env can hold a mainnet RPC while the relayer runs on testnet. Never point one network's relayer at another's Solana.
+  const wrongCluster = network === "testnet" ? /mainnet/i : /devnet|testnet/i;
+  const rpc = env.SOLANA_RPC_URL || "";
+  if (wrongCluster.test(rpc) && network === "mainnet") throw new Error("SOLANA_RPC_URL is for a test network, but NEAR_NETWORK is mainnet");
+  const solanaRpc = wrongCluster.test(rpc) ? "" : rpc;
   return {
     ...base,
     nearRpc: env.NEAR_RPC_URL || base.nearRpc,
-    solanaRpc: env.SOLANA_RPC_URL || base.solanaRpc,
+    solanaRpc: solanaRpc || base.solanaRpc,
     oneClickBase: env.ONECLICK_BASE_URL || base.oneClickBase,
     serviceFeeBps: env.SERVICE_FEE_BPS ? Number(env.SERVICE_FEE_BPS) : base.serviceFeeBps,
   };
