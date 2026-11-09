@@ -9,6 +9,7 @@ import { Dashboard } from "./Dashboard";
 import { Home } from "./Home";
 import { NotFound, PackPage, SecurityPage } from "./Pages";
 import type { default as PrivyBridgeType, PrivyState } from "./privy";
+import { Logo } from "./Logo";
 import { RevealPage } from "./Reveal";
 import { CopyButton, EASE, Sheet, Toasts, useToast } from "./ui";
 import { endTestSession, exportKey, hasStoredWallet, isTestSessionActive, openWallet, type Wallet } from "./wallet";
@@ -149,7 +150,7 @@ function Nav({ wallet, privy, onSignIn, onSignOutTest, ready, route }: { wallet:
   };
   return (
     <motion.header className={`nav ${scrolled ? "is-scrolled" : ""}`} initial={{ y: -30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.7, ease: EASE }}>
-      <a className="logo" href="#/" aria-label="Mintent home">Mintent<small>on NEAR</small></a>
+      <Logo label="Mintent home" />
       <nav aria-label="Main">
         <a href="#/" onClick={goPacks}><Package size={16} aria-hidden="true" /><span>Packs</span></a>
         <a href="#/dashboard" className={route === "/dashboard" ? "is-on" : ""}><LayoutGrid size={16} aria-hidden="true" /><span>Dashboard</span></a>
@@ -249,7 +250,7 @@ function App() {
         {!revealMatch && (
           <footer className="foot">
             <div className="foot__brand">
-              <a className="logo" href="#/">Mintent<small>on NEAR</small></a>
+              <Logo />
               <p>Every pull in Near Mintent condition.</p>
             </div>
             <nav aria-label="Footer">

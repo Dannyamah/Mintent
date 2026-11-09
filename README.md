@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/web/public/brand/mintent-lockup.svg">
+    <img src="apps/web/public/brand/mintent-lockup-ink.svg" alt="Mintent" width="280">
+  </picture>
+</p>
+
 # Mintent
 
 Real graded trading cards, paid for from any chain, owned as NEAR NFTs, and cashed out to any chain.
