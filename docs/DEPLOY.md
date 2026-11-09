@@ -24,7 +24,7 @@ Both images were built and run locally on 9 Nov 2026.
    ```
    This writes `deploy/.railway/<service>.env`, readable only by you and ignored by git. Paste each file into that service's Variables > Raw Editor. **The relayer files contain private keys.** Don't share them or paste them anywhere else.
 6. **Deploy.** Railway deploys after variables change. The web services read their variables at build time, so redeploy them if you change one.
-7. **Optional settings.** In each service's settings, set the Railway config file to `deploy/railway.relayer.json` or `deploy/railway.web.json`. That adds health checks and restarts on failure. `RAILWAY_DOCKERFILE_PATH` already picks the right Dockerfile without it.
+7. **Health checks (optional).** In each service's settings, set the healthcheck path to `/health` for relayers and `/healthz` for sites.
 8. **Privy.** In the Privy dashboard, add both web domains to the allowed domains, and turn off test accounts.
 
 ## Check it

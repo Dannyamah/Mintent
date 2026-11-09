@@ -22,6 +22,7 @@ if (!/mainnet/i.test(dotEnv.SOLANA_RPC_URL ?? "")) throw new Error("SOLANA_RPC_U
 const services: Record<string, Record<string, string>> = {
   "relayer-testnet": {
     RAILWAY_DOCKERFILE_PATH: "deploy/relayer.Dockerfile",
+    PORT: "8080",
     NEAR_NETWORK: "testnet",
     MINTENT_CONTRACT_ID: demo.contract,
     RELAYER_ACCOUNT: demo.relayer,
@@ -33,6 +34,7 @@ const services: Record<string, Record<string, string>> = {
   },
   "relayer-mainnet": {
     RAILWAY_DOCKERFILE_PATH: "deploy/relayer.Dockerfile",
+    PORT: "8080",
     NEAR_NETWORK: "mainnet",
     MINTENT_CONTRACT_ID: "mintent.xinju.near",
     RELAYER_ACCOUNT: "relayer.xinju.near",
@@ -44,6 +46,7 @@ const services: Record<string, Record<string, string>> = {
   },
   "web-testnet": {
     RAILWAY_DOCKERFILE_PATH: "deploy/web.Dockerfile",
+    PORT: "8080",
     VITE_PRIVY_APP_ID: webEnv.VITE_PRIVY_APP_ID,
     VITE_RELAYER_URL: relayerTestnet,
     VITE_MINTENT_CONTRACT: demo.contract,
@@ -51,6 +54,7 @@ const services: Record<string, Record<string, string>> = {
   },
   "web-mainnet": {
     RAILWAY_DOCKERFILE_PATH: "deploy/web.Dockerfile",
+    PORT: "8080",
     VITE_PRIVY_APP_ID: webEnv.VITE_PRIVY_APP_ID,
     VITE_RELAYER_URL: relayerMainnet,
     VITE_MINTENT_CONTRACT: "mintent.xinju.near",
