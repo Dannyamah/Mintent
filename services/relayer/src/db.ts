@@ -86,6 +86,7 @@ export class Db {
         tx_sig TEXT, error TEXT, swap_deposit_tx TEXT, swap_status TEXT, swap_amount_out TEXT, swap_dest_tx TEXT, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
       );
     `);
+    this.db.exec("CREATE TABLE IF NOT EXISTS test_pays (order_id TEXT PRIMARY KEY, buyer TEXT NOT NULL, visitor TEXT NOT NULL, at INTEGER NOT NULL)");
     // Databases made before cash-outs existed.
     const columns = (this.db.prepare("PRAGMA table_info(ops)").all() as unknown as { name: string }[]).map((c) => c.name);
     for (const c of ["swap_deposit_tx", "swap_status", "swap_amount_out", "swap_dest_tx"]) if (!columns.includes(c)) this.db.exec(`ALTER TABLE ops ADD COLUMN ${c} TEXT`);
@@ -121,6 +122,17 @@ export class Db {
 
   stuckOrders(): Order[] {
     return this.db.prepare("SELECT * FROM orders WHERE state = 'needs_attention'").all() as unknown as Order[];
+  }
+
+  /** Free test payments since `since`: by this visitor, by this account, and by everyone. */
+  testPayCounts(visitor: string, buyer: string, since: number): { visitor: number; account: number; all: number } {
+    const count = (where: string, ...args: (string | number)[]) => Number((this.db.prepare(`SELECT COUNT(*) AS n FROM test_pays WHERE at > ? ${where}`).get(since, ...args) as { n: number }).n);
+    return { visitor: count("AND visitor = ?", visitor), account: count("AND buyer = ?", buyer), all: count("") };
+  }
+
+  /** False if this order already had a test payment, so a double click can't pay twice. */
+  recordTestPay(orderId: string, buyer: string, visitor: string): boolean {
+    return Number(this.db.prepare("INSERT OR IGNORE INTO test_pays (order_id, buyer, visitor, at) VALUES (?,?,?,?)").run(orderId, buyer, visitor, Date.now()).changes) === 1;
   }
 
   updateOrder(id: string, patch: Partial<Order>): Order {

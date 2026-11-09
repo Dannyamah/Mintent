@@ -22,7 +22,7 @@ try {
   await page.waitForSelector(".pack-card", { timeout: 30000 });
   await page.waitForTimeout(2500);
   await page.screenshot({ path: `${out}/mainnet-home.png` });
-  check("no test network banner", (await page.locator(".banner").count()) === 0);
+  check("a mainnet banner says real money", /real money/i.test(await page.locator(".banner--live").innerText().catch(() => "")));
   const tiles = await page.evaluate(() => [...document.querySelectorAll(".tile img")].filter((i) => i.complete && i.naturalWidth > 0).length);
   check("the wall shows real mainnet pulls", tiles > 0, `${tiles} images`);
 

@@ -631,6 +631,28 @@ test("a relayer is never pointed at another network's Solana RPC", () => {
   assert.throws(() => loadConfig({ NEAR_NETWORK: "mainnet", SOLANA_RPC_URL: "https://devnet.helius-rpc.com/?api-key=x" }), /test network/);
 });
 
+test("free test packs are capped per visitor, per account and in total, and can't be paid twice", async () => {
+  const { testPayLimits, testPayRefusal } = await import("../src/testnet-upkeep.ts");
+  const limits = testPayLimits({});
+  assert.deepEqual(limits, { perVisitorPerDay: 3, perAccountPerDay: 3, allPerDay: 40 });
+  const db = new Db();
+  const since = Date.now() - 24 * 3600_000;
+  for (let i = 0; i < 3; i++) assert.ok(db.recordTestPay(`o${i}`, "alice", "1.2.3.4"));
+  assert.equal(db.recordTestPay("o0", "alice", "1.2.3.4"), false);
+  assert.match(testPayRefusal(db.testPayCounts("1.2.3.4", "bob", since), limits) ?? "", /free test packs/);
+  assert.match(testPayRefusal(db.testPayCounts("5.6.7.8", "alice", since), limits) ?? "", /free test packs/);
+  assert.equal(testPayRefusal(db.testPayCounts("5.6.7.8", "bob", since), limits), null);
+  assert.match(testPayRefusal({ visitor: 0, account: 0, all: 40 }, limits) ?? "", /all been used/);
+  assert.deepEqual(db.testPayCounts("1.2.3.4", "alice", Date.now() + 1), { visitor: 0, account: 0, all: 0 });
+});
+
+test("only standard graded-card packs can be ordered", async () => {
+  const p = new OrderPipeline(w.deps);
+  for (const code of ["sealed_80", "epokewatch_1500", "comic_250", "pokemon_25x", "", "pokemon_"]) await assert.rejects(p.createOrder({ buyer: "alice", packType: code, originAsset: "mock:usdc", refundTo: "alice" }), { status: 400 }, code);
+  assert.equal(w.deps.db.orders().length, 0);
+  assert.ok((await p.createOrder({ buyer: "alice", packType: "pokemon_100", originAsset: "mock:usdc", refundTo: "alice" })).order);
+});
+
 test("address formats", () => {
   const good: [string, string][] = [["eth", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], ["base", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], ["btc", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"], ["btc", "1BoatSLRHtKNngkdXEeobR76b53LETtpyT"], ["sol", TREASURY.toBase58()], ["near", "alice.near"], ["near", "9ed1b724cc85b4b7f30fd32bf8868aee0d6d177d4b3b0a259547565329cf631a"], ["doge", "DH5yaieqoZN36fDVciNyRueRGvGLR3mr7L"], ["unknownchain", "anything"]];
   const bad: [string, string][] = [["eth", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"], ["btc", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], ["sol", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], ["near", "Alice Near"], ["eth", "0x123"], ["unknownchain", "  "]];

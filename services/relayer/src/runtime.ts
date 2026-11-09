@@ -57,7 +57,8 @@ export async function createRuntime(opts: { contractId: string; relayer: Account
   const conn = new Connection(config.solanaRpc, "confirmed");
   const contract = new MintentContract(opts.contractId, opts.relayer);
   const chain = await SolanaChain.create(conn, config.network, opts.contractId);
-  const log = opts.log ?? ((m: string) => console.log(`[relayer] ${m}`));
+  // Hosted logs are read in a dashboard, so keys inside RPC URLs never reach them.
+  const log = opts.log ?? ((m: string) => console.log(`[relayer] ${m.replace(/(api[-_]?key=)[^&\s"']+/gi, "$1***")}`));
   let toppingUp = false;
   const topUpTestTreasury = async () => {
     if (toppingUp || (await chain.tokenBalance(chain.treasury.toBase58(), config.ccPaymentMint)) >= TEST_TREASURY_MIN) return;

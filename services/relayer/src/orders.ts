@@ -2,7 +2,7 @@
 // Every step is idempotent and its progress is persisted, so a crash at any point resumes safely.
 import { PublicKey, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
-import { assertSafePackTx, verifyEd25519 } from "@mintent/shared";
+import { assertSafePackTx, isStandardCardPack, verifyEd25519 } from "@mintent/shared";
 import { looksLikeAddress, quoteErrorForCustomer, verifySettlement, withServiceFee, type CheckoutQuote } from "@mintent/checkout";
 import type { Order } from "./db.js";
 import type { Deps } from "./deps.js";
@@ -45,6 +45,7 @@ export class OrderPipeline {
 
   async createOrder(input: CreateOrderInput): Promise<{ order: Order; quote: CheckoutQuote }> {
     const { config, cc, checkout, chain, db, log } = this.d;
+    if (!isStandardCardPack(input.packType)) throw Object.assign(new Error("That pack isn't offered."), { status: 400 });
     const sol = await chain.treasurySol();
     if (sol < MIN_TREASURY_LAMPORTS) {
       log(`REFUSING ORDERS: treasury ${chain.treasury.toBase58()} holds ${sol} lamports, needs ${MIN_TREASURY_LAMPORTS}. Add SOL.`);

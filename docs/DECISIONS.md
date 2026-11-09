@@ -11,6 +11,15 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-032 · 9 Nov · Hosting on Railway; public-site protections; cards only
+
+- **Hosting (your choice):** four Railway services from one repo: a relayer and a site for each network. The relayers keep their databases on a Railway volume. Keys go into Railway variables through a local helper (`scripts/src/railway-vars.ts`) and never into images or the repo. See `DEPLOY.md`.
+- **Network banner:** every page now says which network it's on, with a link to the other site. The mainnet banner says "real money".
+- **Free test packs are capped:** 3 per visitor and per account a day, 40 a day across everyone. The testnet relayer also refills itself: it recycles test USDC to the funder and buys devnet SOL for the treasury.
+- **Browser access:** only our own site may call each relayer (`WEB_ORIGIN`, comma-separated).
+- **Cards only (bug found 9 Nov):** the mainnet wall was showing watches and comics, and the shop listed sealed-product and watch packs under "Graded Card Pack". The shop, wall and orders now only take Collector Crypt's standard graded-card machines (`pokemon_<price>`), the ones we've tested. Anything else is refused, including through the API.
+- **Status:** Adopted. Deployed once you've set up Railway.
+
 ### D-031 · 9 Nov · Exit fee on USDC withdrawals and cash-outs
 
 - **Decision (your call):** 1%, at least $0.25, on USDC withdrawals and cash-outs, paid to the treasury in the same transaction. Withdrawing the card is free. Pack purchases keep their 1% fee.

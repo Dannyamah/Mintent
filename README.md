@@ -34,7 +34,7 @@ pnpm verify:pull mintent-con-mw7mmwr5.testnet 1   # withdrawn to the owner's own
 
 ```bash
 pnpm --filter @mintent/checkout test   # 7 pass: checkout
-pnpm --filter @mintent/relayer test    # 63 pass: order pipeline, sell-back, cash-out, recovery
+pnpm --filter @mintent/relayer test    # 65 pass: order pipeline, sell-back, cash-out, recovery
 pnpm test:web                          # 16 pass: the signing check refuses tampered messages and wrong fees; Privy signer matches a local key
 pnpm test:contracts                    # contract, including the attack tests; needs Rust and cargo-near
 ```
@@ -107,6 +107,7 @@ node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 | `services/relayer` | Order pipeline, sell-back and withdrawal, reconciliation, HTTP API |
 | `apps/web` | React and Vite web app |
 | `scripts` | `demo:testnet`, `verify:pull` and earlier feasibility spikes |
+| `deploy` | Dockerfiles and Railway config for hosting ([guide](docs/DEPLOY.md)) |
 | `docs` | [Evidence](docs/EVIDENCE.md), [threat model](docs/THREAT-MODEL.md), [decisions](docs/DECISIONS.md), [plan](docs/PLAN.md) |
 
 ## Limits

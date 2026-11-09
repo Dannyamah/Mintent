@@ -154,3 +154,11 @@ export class CcClient {
     return (await this.json(`${this.gacha}/api/vrf/verify?memo=${encodeURIComponent(memo)}`)).data;
   }
 }
+
+/**
+ * Collector Crypt's standard graded-card machines, the only packs Mintent offers. Its other machines include sealed product,
+ * watches and comics, which aren't graded cards and haven't been tested through our purchase and sell-back flow.
+ */
+export function isStandardCardPack(code: string | null | undefined): boolean {
+  return typeof code === "string" && /^pokemon_\d+$/.test(code);
+}

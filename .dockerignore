@@ -1,0 +1,16 @@
+# Keep secrets, local state and build output out of images.
+.git
+**/node_modules
+**/dist
+contracts/target
+.env
+.env.*
+!.env.example
+**/.env.local
+deploy/.railway
+*.sqlite*
+*.log
+scripts/.demo-*.json
+scripts/.spike-*.json
+.secrets
+.DS_Store

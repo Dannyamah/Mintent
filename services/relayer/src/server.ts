@@ -2,11 +2,12 @@
 // Identity: nothing here can move a card or a coin without the owner's own on-chain sign_for_card call,
 // so `actor` needs no login: the contract is the authority, and the relayer double-checks it.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { accountFromKey, CONFIGS, loadAccount, loadConfig, NETWORKS, type RecentPull } from "@mintent/shared";
+import { accountFromKey, CONFIGS, isStandardCardPack, loadAccount, loadConfig, NETWORKS, type RecentPull } from "@mintent/shared";
 import { CardOps } from "./ops.js";
 import { OrderPipeline } from "./orders.js";
 import { reconcile } from "./reconcile.js";
 import { createRuntime } from "./runtime.js";
+import { createTestnetUpkeep, testPayLimits, testPayRefusal } from "./testnet-upkeep.js";
 
 /** Neutral names in our own UI: no franchise branding (see docs/PLAN.md). */
 export function neutralPackName(price: number): string {
@@ -44,9 +45,12 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
   const d = await createRuntime({ contractId, relayer, dbPath: process.env.RELAYER_DB || "relayer.sqlite", config, oneClickJwt: process.env.ONECLICK_JWT });
   const pipeline = new OrderPipeline(d);
   const ops = new CardOps(d);
-  const allowedOrigin = process.env.WEB_ORIGIN || "*";
+  // Only our own sites may call this from a browser. Unset means any origin, which is for local development.
+  const origins = (process.env.WEB_ORIGIN || "").split(",").map((o) => o.trim().replace(/\/$/, "")).filter(Boolean);
   // Testnet convenience only: lets the app pay a quote with test USDC. Never available on mainnet.
-  const funder = config.network === "testnet" && process.env.DEMO_FUNDER ? loadAccount("testnet", process.env.DEMO_FUNDER) : null;
+  const funderId = config.network === "testnet" ? process.env.DEMO_FUNDER : undefined;
+  const funder = funderId ? (process.env.DEMO_FUNDER_PRIVATE_KEY ? accountFromKey("testnet", funderId, process.env.DEMO_FUNDER_PRIVATE_KEY, process.env.NEAR_RPC_URL) : loadAccount("testnet", funderId)) : null;
+  const limits = testPayLimits();
   let gallery: { at: number; pulls: RecentPull[] } = { at: 0, pulls: [] };
 
   const packView = (m: Awaited<ReturnType<typeof d.cc.machines>>[number]) => ({ code: m.code, name: neutralPackName(m.price), price: m.price, odds: m.odds, expectedValue: m.ev, buybackPct: m.instantBuyback });
@@ -82,7 +86,7 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
 
   const assetView = (t: { assetId: string; symbol: string; blockchain: string; decimals: number; price?: number }) => ({ assetId: t.assetId, symbol: t.symbol, chain: t.blockchain, decimals: t.decimals, price: t.price });
 
-  const routes: [string, RegExp, (m: RegExpMatchArray, b: any) => Promise<unknown>][] = [
+  const routes: [string, RegExp, (m: RegExpMatchArray, b: any, req: IncomingMessage) => Promise<unknown>][] = [
     ["GET", /^\/health$/, async () => ({ ok: true, network: config.network, contract: contractId, treasury: d.chain.treasury.toBase58(), checkout: d.checkout.name, mpcContract: config.mpcContract, serviceFeeBps: config.serviceFeeBps, defaultPack: CONFIGS[config.network].defaultPack, nearRpcs: [NETWORKS[config.network].rpc, ...NETWORKS[config.network].rpcFallbacks], testPay: Boolean(funder), testPayAsset: funder ? TESTNET_PAY_ASSET : null })],
     ["GET", /^\/gallery$/, async () => {
       return gallery.pulls;
@@ -94,13 +98,14 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
       const best = new Map<number, Awaited<ReturnType<typeof d.cc.machines>>[number]>();
       const score = (m: { code: string; ev: number | null }) => (m.code.startsWith("pokemon_") ? 1e9 : 0) + (m.ev ?? 0);
       for (const m of await d.cc.machines()) {
-        if (!m.ev || !m.price || m.price % 1 !== 0) continue;
+        if (!isStandardCardPack(m.code) || !m.ev || !m.price || m.price % 1 !== 0) continue;
         const cur = best.get(m.price);
         if (!cur || score(m) > score(cur)) best.set(m.price, m);
       }
       return [...best.values()].sort((a, b) => a.price - b.price).map(packView);
     }],
     ["GET", /^\/packs\/([A-Za-z0-9_-]+)$/, async (m) => {
+      if (!isStandardCardPack(m[1])) throw Object.assign(new Error("that pack isn't offered"), { status: 404 });
       const machine = await d.cc.machine(m[1]);
       const recent = gallery.pulls.filter((p) => p.packType === m[1]).slice(0, 12);
       return { ...packView(machine), recent: recent.length >= 4 ? recent : gallery.pulls.slice(0, 12), recentIsFromThisPack: recent.length >= 4 };
@@ -135,10 +140,15 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
       const { state } = pipeline.retry(decodeURIComponent(m[1]));
       return { ok: true, state };
     }],
-    ["POST", /^\/orders\/([^/]+)\/test-pay$/, async (m) => {
+    ["POST", /^\/orders\/([^/]+)\/test-pay$/, async (m, _b, req) => {
       if (!funder) throw Object.assign(new Error("test payments are not available"), { status: 403 });
       const order = d.db.order(decodeURIComponent(m[1]));
       if (!order || order.state !== "awaiting_payment" || order.origin_asset !== `nep141:${TESTNET_USDC}`) throw Object.assign(new Error("this order can't take a test payment"), { status: 400 });
+      // Free test packs are shared by everyone, so each visitor gets a few a day. Behind Railway's proxy, the first forwarded address is the visitor.
+      const visitor = String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress ?? "unknown").split(",")[0].trim();
+      const refusal = testPayRefusal(d.db.testPayCounts(visitor, order.buyer, Date.now() - 24 * 3600_000), limits);
+      if (refusal) throw Object.assign(new Error(refusal), { status: 429 });
+      if (!d.db.recordTestPay(order.id, order.buyer, visitor)) throw Object.assign(new Error("this order has already been paid"), { status: 409 });
       const tx = await funder.callFunctionRaw({ contractId: TESTNET_USDC, methodName: "ft_transfer_call", args: { receiver_id: TESTNET_VERIFIER, amount: order.amount_in, msg: order.id }, deposit: 1n, gas: 100_000_000_000_000n });
       await d.checkout.submitDeposit(tx.transaction.hash, order.id).catch(() => undefined);
       return { ok: true };
@@ -177,7 +187,12 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
   ];
 
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+    const origin = String(req.headers.origin ?? "").replace(/\/$/, "");
+    if (!origins.length) res.setHeader("Access-Control-Allow-Origin", "*");
+    else if (origins.includes(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+    }
     res.setHeader("Access-Control-Allow-Headers", "content-type");
     res.setHeader("Content-Type", "application/json");
     if (req.method === "OPTIONS") return void res.writeHead(204).end();
@@ -186,7 +201,7 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
       for (const [method, re, fn] of routes) {
         const m = path.match(re);
         if (m && req.method === method) {
-          const result = await fn(m, method === "POST" ? await body(req) : {});
+          const result = await fn(m, method === "POST" ? await body(req) : {}, req);
           return void res.writeHead(200).end(JSON.stringify(result, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
         }
       }
@@ -197,7 +212,8 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
   });
   // The wall must never make a visitor wait for resizing, so prepare its images before publishing them.
   const refreshGallery = async () => {
-    const pulls = await d.cc.recentPulls(60);
+    // Only pulls from the packs we sell, so the wall shows what a buyer can actually get.
+    const pulls = (await d.cc.recentPulls(200)).filter((p) => isStandardCardPack(p.packType)).slice(0, 60);
     if (!pulls.length) return;
     await d.warmImages?.(pulls.map((p) => p.thumb));
     gallery = { at: Date.now(), pulls };
@@ -215,13 +231,17 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
   const wall = setInterval(() => void refreshGallery().catch((e) => d.log(`gallery: ${e}`)), 5 * 60_000);
   const rec = setInterval(() => void reconcile(d).then((f) => f.length && d.log(`reconcile: ${JSON.stringify(f)}`), (e) => d.log(`reconcile: ${e}`)), 60_000);
   const funds = setInterval(topUp, 60_000);
+  // Testnet only: refill the funder and the treasury's SOL from what the demo itself has used.
+  const upkeep = funder ? createTestnetUpkeep(d, funder) : null;
+  if (upkeep) void upkeep();
+  const keep = upkeep ? setInterval(() => void upkeep(), 5 * 60_000) : null;
   let cashingOut = false;
   const cashOuts = setInterval(() => {
     if (cashingOut) return; // funding a testnet deposit can outlast a tick, and mustn't run twice
     cashingOut = true;
     void ops.advanceCashOuts().catch((e) => d.log(`cash-outs: ${e}`)).finally(() => { cashingOut = false; });
   }, 5_000);
-  return { server, deps: d, stop: () => { clearInterval(tick); clearInterval(rec); clearInterval(wall); clearInterval(funds); clearInterval(cashOuts); server.close(); } };
+  return { server, deps: d, stop: () => { clearInterval(tick); clearInterval(rec); clearInterval(wall); clearInterval(funds); clearInterval(cashOuts); if (keep) clearInterval(keep); server.close(); } };
 }
 
 if (process.argv[1]?.endsWith("server.ts")) {

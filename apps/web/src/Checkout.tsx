@@ -162,7 +162,8 @@ export function Checkout({ pack, health, wallet, loginWallet, onClose, onDone }:
       await api.testPay(created!.orderId);
       setPaid(true);
     } catch (e) {
-      setError("The test payment didn't go through. Try again in a moment.");
+      const why = e instanceof Error ? e.message : "";
+      setError(/free test packs|already been paid/.test(why) ? why : "The test payment didn't go through. Try again in a moment.");
       console.error(e);
     } finally {
       setBusy(false);

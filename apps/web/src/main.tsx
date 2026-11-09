@@ -36,6 +36,24 @@ const PrivyBridge = lazy(() => import("./privy").catch((e) => {
   return { default: (() => null) as unknown as typeof PrivyBridgeType };
 }));
 
+const OTHER_SITE = { testnet: import.meta.env.VITE_MAINNET_URL as string | undefined, mainnet: import.meta.env.VITE_TESTNET_URL as string | undefined };
+
+/** Which network this is, always on screen, with a link to the other one. */
+function NetworkBanner({ network }: { network: Health["network"] }) {
+  const other = OTHER_SITE[network];
+  return network === "mainnet" ? (
+    <p className="banner banner--live" data-network="mainnet">
+      <span className="banner__dot" aria-hidden="true" /> Mainnet: real money and real cards.
+      {other && <> <a href={other}>Try it free on testnet</a></>}
+    </p>
+  ) : (
+    <p className="banner" data-network="testnet">
+      Test network. No real money moves, and cards are Collector Crypt's devnet cards.
+      {other && <> <a href={other}>Go to mainnet</a></>}
+    </p>
+  );
+}
+
 function SignInSheet({ health, privy, onClose, onPrivy, onCreate }: { health: Health; privy: PrivyState | null; onClose: () => void; onPrivy: (method: "email" | "wallet") => void; onCreate: () => void }) {
   const isTest = health.network === "testnet";
   return (
@@ -232,7 +250,7 @@ function App() {
     <MotionConfig reducedMotion="user">
       <Toasts>
         <div className="grain" aria-hidden="true" />
-        {health?.network === "testnet" && <p className="banner">Test network. No real money moves, and cards are Collector Crypt's devnet cards.</p>}
+        {health && <NetworkBanner network={health.network} />}
         {PRIVY_APP_ID && health && (
           <Suspense fallback={null}>
             <PrivyBridge appId={PRIVY_APP_ID} health={health} onState={setPrivy} onLoginCancelled={clearPending} />
