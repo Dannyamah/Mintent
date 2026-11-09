@@ -121,6 +121,10 @@ An XRP quote failed with a 400 from 1Click, possibly because of the placeholder 
 
 `scripts/src/check-settlement-search.ts` runs the fallback search, read-only, against the real devnet treasury. It found the right transaction for 6 of 6 recent paid orders (tokens 10 to 15). `services/relayer/test/relayer.test.ts` covers the refusals: one transaction can't pay for two orders, too small or too old proves nothing, an order 1Click hasn't confirmed isn't completed by someone else's transaction, and an RPC failure isn't proof. **It hasn't run on mainnet.**
 
+## Exit fee, live on test networks, 9 Nov
+
+Ben withdrew token 19's $19.55 sell-back: $19.30 reached his address, and the treasury's USDC rose by exactly $0.25 in the same transaction, read from Solana. Token 20's $17.85 was cashed out to Base: after the $0.25 fee, $17.60 went into the swap and 17.55424 USDC arrived on Base Sepolia. On testnet both parts of a cash-out go to the treasury, which then funds the swap with the owner's share. `apps/web/e2e/verify.test.mts` shows the app refuses a higher fee, a fee sent elsewhere, or a transfer with no fee.
+
 ## What has not been shown
 
 - **No mainnet run.** The contract is deployed at `mintent.xinju.near`, but holds no tokens yet. One real, unsigned $25 mainnet purchase transaction passed `assertSafePackTx` on 9 Nov (`scripts/src/mainnet-pack-check.ts`), with nothing signed or sent. No purchase, sell-back or cash-out has run on mainnet.

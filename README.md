@@ -27,8 +27,8 @@ pnpm verify:pull mintent-con-mw7mmwr5.testnet 1   # withdrawn to the owner's own
 
 ```bash
 pnpm --filter @mintent/checkout test   # 7 pass: checkout
-pnpm --filter @mintent/relayer test    # 59 pass: order pipeline, sell-back, cash-out, recovery
-pnpm test:web                          # 14 pass: the signing check refuses tampered messages; Privy signer matches a local key
+pnpm --filter @mintent/relayer test    # 63 pass: order pipeline, sell-back, cash-out, recovery
+pnpm test:web                          # 16 pass: the signing check refuses tampered messages and wrong fees; Privy signer matches a local key
 pnpm test:contracts                    # contract, including the attack tests; needs Rust and cargo-near
 ```
 
@@ -54,7 +54,7 @@ Every step of the real runs, with transaction links, is in [docs/EVIDENCE.md](do
 3. **Buy.** The relayer asks Collector Crypt for a pack with the token's derived address as the recipient, inspects the transaction, and has the contract sign it through Chain Signatures.
 4. **Open.** The card arrives at the token's address, and NEAR records it. The fairness proof is Collector Crypt's own VRF.
 5. **Own.** Only the current NFT owner can call `sign_for_card`. The contract parses each Solana message before asking the MPC network to sign, so a seller can't pre-sign a way to take the card after selling.
-6. **Cash out.** Sell-back USDC lands in the NFT's own address. The owner picks a coin and chain, sees a quote, and signs. The NFT's address pays a 1Click deposit address, and the swap pays out. A refund returns to the NFT's address.
+6. **Cash out.** Sell-back USDC lands in the NFT's own address. The owner picks a coin and chain, sees a quote, and signs. Mintent takes 1% (at least $0.25) on USDC leaving an NFT, shown before signing. Withdrawing the card is free. The NFT's address pays a 1Click deposit address, and the swap pays out. A refund returns to the NFT's address.
 
 The contract holds no user balances. Only the current owner can request a signature for a card; the relayer can't do it alone.
 

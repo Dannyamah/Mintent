@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { PublicKey, SystemProgram, TransactionInstruction, TransactionMessage, type AddressLookupTableAccount } from "@solana/web3.js";
 import { ata, authorizeAndPayIx, coreTransferIx, createAtaIdempotentIx, setComputeUnitLimitIx, TOKEN_PROGRAM, transferCheckedIx } from "@mintent/shared";
-import { checkCashOutQuote, checkMessage, MessageRefused, parseMessage, sellbackPrice, type MessageContext } from "../src/verifyMessage.ts";
+import { afterExitFee, exitFee as sharedExitFee } from "@mintent/shared";
+import { checkCashOutQuote, checkMessage, exitFee, MessageRefused, parseMessage, sellbackPrice, type MessageContext } from "../src/verifyMessage.ts";
 
 const key = () => new PublicKey(crypto.getRandomValues(new Uint8Array(32)));
 const treasury = key();
@@ -31,8 +32,11 @@ function message(instructions: TransactionInstruction[], opts: { payer?: PublicK
 const refused = (fn: () => void, why: RegExp) => assert.throws(fn, (e: Error) => e instanceof MessageRefused && why.test(e.message) && /Nothing was signed/.test(e.message));
 
 const AMOUNT = 15_300_000n;
-const send = async (to = dest, amount = AMOUNT, mint = usdc, authority = card) => [await createAtaIdempotentIx(treasury, to, mint), transferCheckedIx(await ata(authority, mint), mint, await ata(to, mint), authority, amount, 6)];
-const sendIntent = { kind: "sendUsdc", destination: dest.toBase58(), amount: AMOUNT.toString() } as const;
+const FEE = 250_000n;
+const pay = async (to: PublicKey, amount: bigint, mint = usdc, authority = card) => [await createAtaIdempotentIx(treasury, to, mint), transferCheckedIx(await ata(authority, mint), mint, await ata(to, mint), authority, amount, 6)];
+/** What the relayer builds: the owner's share, then the fee to the treasury. */
+const send = async (to = dest, amount = AMOUNT - FEE, mint = usdc, authority = card, fee = FEE, feeTo = treasury) => [...(await pay(to, amount, mint, authority)), ...(await pay(feeTo, fee, mint, authority))];
+const sendIntent = { kind: "sendUsdc", destination: dest.toBase58(), total: AMOUNT.toString() } as const;
 
 const quote = { price: AMOUNT.toString(), quoteId: "61414", expiresAt: 1794235565, memo: "cc-x:buyback", ccProgram: CC_PROGRAM, destinationOwner: ccDestination.toBase58(), treasury: key().toBase58(), quoteMarker: key().toBase58(), rentVault: key().toBase58(), paymentMint: usdc.toBase58(), tokenProgram: TOKEN_PROGRAM.toBase58(), memoProgram: "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr" };
 const ed25519 = () => new TransactionInstruction({ programId: new PublicKey("Ed25519SigVerify111111111111111111111111111"), keys: [], data: Buffer.alloc(144) });
@@ -55,23 +59,40 @@ test("withdrawing the card: another destination or another card is refused", () 
 
 test("an honest USDC transfer passes, for a withdrawal and a cash-out deposit", async () => {
   checkMessage(message(await send()), ctx, sendIntent);
-  checkMessage(message(await send(treasury)), ctx, { ...sendIntent, destination: treasury.toBase58() });
+  checkMessage(message(await send(treasury)), ctx, { ...sendIntent, destination: treasury.toBase58() }); // testnet cash-out deposit
 });
 
 test("sending USDC: another destination, amount or coin is refused", async () => {
   refused(() => checkMessage(message([]), ctx, sendIntent), /signers/); // nothing for the NFT to sign
   const toAttacker = await send(attacker);
   refused(() => checkMessage(message(toAttacker), ctx, sendIntent), /different address/);
-  const more = await send(dest, AMOUNT + 1n);
+  const more = await send(dest, AMOUNT - FEE + 1n);
   refused(() => checkMessage(message(more), ctx, sendIntent), /amount is different/);
-  const otherCoin = await send(dest, AMOUNT, key());
+  const otherCoin = await send(dest, AMOUNT - FEE, key());
   refused(() => checkMessage(message(otherCoin), ctx, sendIntent), /different coin/);
 });
 
 test("the classic swap: create the right account, then pay another one", async () => {
-  const [createOk] = await send();
+  const [createOk, , ...feeSteps] = await send();
   const [, payAttacker] = await send(attacker);
-  refused(() => checkMessage(message([createOk, payAttacker]), ctx, sendIntent), /different address/);
+  refused(() => checkMessage(message([createOk, payAttacker, ...feeSteps]), ctx, sendIntent), /different address/);
+});
+
+test("the fee must be exactly Mintent's, and only go to the treasury", async () => {
+  const higher = await send(dest, AMOUNT - FEE - 1n, usdc, card, FEE + 1n);
+  refused(() => checkMessage(message(higher), ctx, sendIntent), /fee is different/);
+  const stolen = await send(dest, AMOUNT - FEE, usdc, card, FEE, attacker);
+  refused(() => checkMessage(message(stolen), ctx, sendIntent), /fee goes to a different address/);
+  const noFee = await pay(dest, AMOUNT);
+  refused(() => checkMessage(message(noFee), ctx, sendIntent), /signers|extra steps/);
+  // 1% above the minimum.
+  const big = 100_000_000n;
+  checkMessage(message(await send(dest, big - 1_000_000n, usdc, card, 1_000_000n)), ctx, { ...sendIntent, total: big.toString() });
+});
+
+test("the app's fee rule is the relayer's", () => {
+  for (const total of [1n, 250_000n, 15_300_000n, 25_000_000n, 99_999_999n, 100_000_000n, 100_000_001n, 10n ** 12n]) assert.equal(exitFee(total), sharedExitFee(total));
+  assert.equal(afterExitFee(15_300_000n)?.net, 15_050_000n);
 });
 
 test("a card transfer can't hide in a USDC transfer, or the reverse", async () => {

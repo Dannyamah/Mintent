@@ -4,7 +4,7 @@
 // The relayer can't move a card without the owner, and the owner can't land a nonce transaction without the relayer.
 import { randomUUID } from "node:crypto";
 import { PublicKey, VersionedTransaction, VersionedMessage, type TransactionInstruction } from "@solana/web3.js";
-import { ata, authorizeAndPayIx, coreTransferIx, createAtaIdempotentIx, setComputeUnitLimitIx, transferCheckedIx, verifyEd25519 } from "@mintent/shared";
+import { afterExitFee, ata, authorizeAndPayIx, coreTransferIx, createAtaIdempotentIx, setComputeUnitLimitIx, transferCheckedIx, verifyEd25519 } from "@mintent/shared";
 import { looksLikeAddress, quoteErrorForCustomer, TERMINAL_STATES, type SwapState } from "@mintent/checkout";
 import type { Op, OpKind } from "./db.js";
 import type { Deps } from "./deps.js";
@@ -75,22 +75,30 @@ export class CardOps {
     return this.create("withdraw_card", tokenId, actor, [coreTransferIx(new PublicKey(view.record.card_mint), collection, chain.treasury, card, dest)], { destination }, true);
   }
 
+  /** Send `total` USDC from the NFT: the owner's share to `to`, Mintent's fee to the treasury, in one transaction. */
+  private async usdcExit(card: PublicKey, to: PublicKey, total: bigint) {
+    const { chain, config } = this.d;
+    const split = afterExitFee(total);
+    if (!split) throw Object.assign(new Error("This amount is too small to cover the $0.25 minimum fee."), { status: 400 });
+    const mint = new PublicKey(config.ccPaymentMint);
+    const from = await ata(card, mint);
+    const instructions = [
+      await createAtaIdempotentIx(chain.treasury, to, mint),
+      transferCheckedIx(from, mint, await ata(to, mint), card, split.net, 6),
+      await createAtaIdempotentIx(chain.treasury, chain.treasury, mint),
+      transferCheckedIx(from, mint, await ata(chain.treasury, mint), card, split.fee, 6),
+    ];
+    return { instructions, ...split };
+  }
+
   async prepareWithdrawProceeds(tokenId: string, actor: string, destination: string): Promise<Op> {
     const { chain, config } = this.d;
     await this.assertOwner(tokenId, actor);
     const card = new PublicKey(await chain.cardAddress(tokenId));
-    const mint = new PublicKey(config.ccPaymentMint);
     const amount = await chain.tokenBalance(card.toBase58(), config.ccPaymentMint);
     if (amount === 0n) throw new Error("this token holds no proceeds");
-    const dest = new PublicKey(destination);
-    return this.create(
-      "withdraw_proceeds",
-      tokenId,
-      actor,
-      [await createAtaIdempotentIx(chain.treasury, dest, mint), transferCheckedIx(await ata(card, mint), mint, await ata(dest, mint), card, amount, 6)],
-      { destination, amount: amount.toString(), mint: config.ccPaymentMint },
-      false,
-    );
+    const exit = await this.usdcExit(card, new PublicKey(destination), amount);
+    return this.create("withdraw_proceeds", tokenId, actor, exit.instructions, { destination, amount: amount.toString(), fee: exit.fee.toString(), net: exit.net.toString(), mint: config.ccPaymentMint }, false);
   }
 
   /**
@@ -106,25 +114,27 @@ export class CardOps {
     if (!asset) throw Object.assign(new Error("that asset can't be paid out"), { status: 400 });
     if (!looksLikeAddress(asset.blockchain, recipient)) throw Object.assign(new Error(`That doesn't look like a ${asset.blockchain} address.`), { status: 400 });
     const card = new PublicKey(await chain.cardAddress(tokenId));
-    const mint = new PublicKey(config.ccPaymentMint);
     const amount = await chain.tokenBalance(card.toBase58(), config.ccPaymentMint);
     if (amount === 0n) throw Object.assign(new Error("this token holds no proceeds"), { status: 400 });
+    const split = afterExitFee(amount);
+    if (!split) throw Object.assign(new Error("This amount is too small to cover the $0.25 minimum fee."), { status: 400 });
 
     const isTest = config.network === "testnet";
-    if (isTest && (await chain.tokenBalance(chain.treasury.toBase58(), config.checkoutMint)) < amount) throw Object.assign(new Error("The test treasury can't cover this cash-out right now."), { status: 503 });
-    const quote = await checkout.payoutQuote({ originAsset: config.checkoutDestinationAsset, destinationAsset, amountIn: amount.toString(), recipient, refundTo: isTest ? chain.treasury.toBase58() : card.toBase58() }).catch((e) => {
+    if (isTest && (await chain.tokenBalance(chain.treasury.toBase58(), config.checkoutMint)) < split.net) throw Object.assign(new Error("The test treasury can't cover this cash-out right now."), { status: 503 });
+    const quote = await checkout.payoutQuote({ originAsset: config.checkoutDestinationAsset, destinationAsset, amountIn: split.net.toString(), recipient, refundTo: isTest ? chain.treasury.toBase58() : card.toBase58() }).catch((e) => {
       this.d.log(`cash-out quote failed for ${destinationAsset}: ${e}`);
       throw Object.assign(new Error(quoteErrorForCustomer(e)), { status: 502 });
     });
     if (quote.depositMemo) throw new Error("1Click asked for a memo, which a Solana deposit shouldn't need");
 
     const payTo = isTest ? chain.treasury : new PublicKey(quote.depositAddress);
+    const exit = await this.usdcExit(card, payTo, amount);
     return this.create(
       "cash_out",
       tokenId,
       actor,
-      [await createAtaIdempotentIx(chain.treasury, payTo, mint), transferCheckedIx(await ata(card, mint), mint, await ata(payTo, mint), card, amount, 6)],
-      { amount: amount.toString(), mint: config.ccPaymentMint, destinationAsset, symbol: asset.symbol, chain: asset.blockchain, decimals: asset.decimals, recipient, depositAddress: quote.depositAddress, amountOut: quote.amountOut, amountOutFormatted: quote.amountOutFormatted, minAmountOut: quote.minAmountOut, deadline: quote.deadline, timeEstimateSeconds: quote.timeEstimateSeconds, quote: quote.raw },
+      exit.instructions,
+      { amount: amount.toString(), fee: exit.fee.toString(), net: exit.net.toString(), mint: config.ccPaymentMint, destinationAsset, symbol: asset.symbol, chain: asset.blockchain, decimals: asset.decimals, recipient, depositAddress: quote.depositAddress, amountOut: quote.amountOut, amountOutFormatted: quote.amountOutFormatted, minAmountOut: quote.minAmountOut, deadline: quote.deadline, timeEstimateSeconds: quote.timeEstimateSeconds, quote: quote.raw },
       false,
     );
   }
@@ -134,10 +144,10 @@ export class CardOps {
     const { db, checkout, log } = this.d;
     for (const op of db.openCashOuts()) {
       try {
-        const detail = JSON.parse(op.detail) as { depositAddress: string; amount: string };
+        const detail = JSON.parse(op.detail) as { depositAddress: string; amount: string; net?: string };
         let deposit = op.swap_deposit_tx;
         if (!deposit) {
-          deposit = this.d.fundTestCashOut ? await this.d.fundTestCashOut(detail.depositAddress, BigInt(detail.amount)) : op.tx_sig!;
+          deposit = this.d.fundTestCashOut ? await this.d.fundTestCashOut(detail.depositAddress, BigInt(detail.net ?? detail.amount)) : op.tx_sig!;
           db.updateOp(op.id, { swap_deposit_tx: deposit, swap_status: "PENDING_DEPOSIT" });
           // Only speeds up detection, so a failure here doesn't matter.
           await checkout.submitDeposit(deposit, detail.depositAddress).catch(() => undefined);

@@ -3,7 +3,7 @@
 import { Account, FailoverRpcProvider, JsonRpcProvider, KeyPair, KeyPairSigner, keyToImplicitAddress, PublicKey, Signer } from "near-api-js";
 import type { Health } from "./api";
 import { PINS, trustedDeployment } from "./pins";
-import { checkCashOutQuote, checkMessage, MessageRefused, type MessageContext } from "./verifyMessage";
+import { checkCashOutQuote, checkMessage, exitFee, MessageRefused, type MessageContext } from "./verifyMessage";
 
 const STORE = "mintent.testnet.key";
 const TGAS = 1_000_000_000_000n;
@@ -12,8 +12,9 @@ const TGAS = 1_000_000_000_000n;
 export type SigningIntent =
   | { kind: "sellback"; price: string }
   | { kind: "withdrawCard"; destination: string }
-  | { kind: "withdrawUsdc"; destination: string; amount: string }
-  | { kind: "cashOut"; recipient: string; destinationAsset: string; amount: string; depositAddress: string; quote: unknown };
+  /** `total` is everything the NFT holds. The app works out the fee itself. */
+  | { kind: "withdrawUsdc"; destination: string; total: string }
+  | { kind: "cashOut"; recipient: string; destinationAsset: string; total: string; depositAddress: string; quote: unknown };
 
 export interface Wallet {
   accountId: string;
@@ -155,14 +156,15 @@ function walletFrom(accountId: string, signer: Signer, health: Health): Wallet {
     if (intent.kind === "cashOut") {
       // Testnet: sell-back money is a token Tidepool doesn't take, so it goes to the treasury, which funds the swap.
       const isTest = network === "testnet";
-      checkCashOutQuote(intent.quote, { depositAddress: intent.depositAddress, recipient: intent.recipient, destinationAsset: intent.destinationAsset, originAsset: pins.swapOrigin, amountIn: intent.amount, refundTo: isTest ? ctx.treasury : ctx.card });
+      const total = BigInt(intent.total);
+      checkCashOutQuote(intent.quote, { depositAddress: intent.depositAddress, recipient: intent.recipient, destinationAsset: intent.destinationAsset, originAsset: pins.swapOrigin, amountIn: (total - exitFee(total)).toString(), refundTo: isTest ? ctx.treasury : ctx.card });
       if (!isTest && !SIGNATURE_FALSE_NEGATIVES.has(intent.destinationAsset)) {
         const { verifyQuoteSignature } = await import("@defuse-protocol/one-click-sdk-typescript");
         if (!verifyQuoteSignature(intent.quote as never)) throw new MessageRefused("We stopped this before signing, because the swap quote isn't signed by 1Click. Nothing was signed.");
       }
-      checkMessage(messageHex, ctx, { kind: "sendUsdc", destination: isTest ? ctx.treasury : intent.depositAddress, amount: intent.amount });
+      checkMessage(messageHex, ctx, { kind: "sendUsdc", destination: isTest ? ctx.treasury : intent.depositAddress, total: intent.total });
     } else if (intent.kind === "withdrawUsdc") {
-      checkMessage(messageHex, ctx, { kind: "sendUsdc", destination: intent.destination, amount: intent.amount });
+      checkMessage(messageHex, ctx, { kind: "sendUsdc", destination: intent.destination, total: intent.total });
     } else {
       checkMessage(messageHex, ctx, intent);
     }

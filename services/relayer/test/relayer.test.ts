@@ -4,7 +4,7 @@ import { beforeEach, test } from "node:test";
 import { PublicKey, TransactionInstruction, TransactionMessage, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import { looksLikeAddress, MockBackend, quoteErrorForCustomer } from "@mintent/checkout";
-import { ata, COMPUTE_BUDGET, CONFIGS, loadConfig, MEMO_PROGRAM, MPL_CORE, realRpcError, TOKEN_PROGRAM, transferCheckedIx, withRealErrors, type CardView } from "@mintent/shared";
+import { afterExitFee, ata, COMPUTE_BUDGET, CONFIGS, exitFee, loadConfig, MEMO_PROGRAM, MPL_CORE, realRpcError, TOKEN_PROGRAM, transferCheckedIx, withRealErrors, type CardView } from "@mintent/shared";
 import { CardOps, Db, isSolanaSignature, OrderPipeline, reconcile, sponsorAmounts, type Chain, type ContractApi, type Deps } from "../src/index.ts";
 
 function keypair() {
@@ -485,12 +485,65 @@ test("cash-out on mainnet: the NFT's address pays 1Click's deposit address, and 
   assert.equal(op.kind, "cash_out");
   assert.equal(op.moves_card, 0);
   assert.equal(asked!.refundTo, CARD);
-  assert.equal(asked!.amountIn, w.balance.toString());
+  assert.equal(asked!.amountIn, (w.balance - exitFee(w.balance)).toString()); // the swap gets what's left after the fee
   assert.equal(cashOut(op).symbol, "BTC");
   assert.equal(cashOut(op).depositAddress, deposit);
   const keys = VersionedMessage.deserialize(Buffer.from(op.message_hex, "hex")).staticAccountKeys.map((k) => k.toBase58());
   assert.ok(keys.includes((await ata(new PublicKey(deposit), new PublicKey(USDC))).toBase58()), "the USDC goes to the deposit address");
-  assert.ok(!keys.includes((await ata(TREASURY, new PublicKey(USDC))).toBase58()), "and never to the treasury on mainnet");
+  assert.ok(keys.includes((await ata(TREASURY, new PublicKey(USDC))).toBase58()), "and the fee to the treasury");
+});
+
+test("the exit fee is 1%, at least $0.25, and an amount that can't cover it is refused", () => {
+  assert.equal(exitFee(15_300_000n), 250_000n); // $15.30 sell-back: the $0.25 minimum
+  assert.equal(exitFee(25_000_000n), 250_000n);
+  assert.equal(exitFee(100_000_000n), 1_000_000n); // $100: 1%
+  assert.equal(exitFee(100_000_001n), 1_000_001n); // rounds up
+  assert.deepEqual(afterExitFee(15_300_000n), { fee: 250_000n, net: 15_050_000n });
+  assert.equal(afterExitFee(250_000n), null);
+});
+
+async function transfers(hex: string) {
+  const m = VersionedMessage.deserialize(Buffer.from(hex, "hex"));
+  const keys = m.staticAccountKeys.map((k) => k.toBase58());
+  return m.compiledInstructions.filter((ix) => keys[ix.programIdIndex] === TOKEN_PROGRAM.toBase58()).map((ix) => ({ to: keys[ix.accountKeyIndexes[2]], amount: Buffer.from(ix.data).readBigUInt64LE(1) }));
+}
+
+test("a USDC withdrawal sends the owner's share and the fee to the treasury, in one transaction", async () => {
+  w.balance = 15_300_000n;
+  const dest = keypair().address;
+  const op = await cashOutOps().prepareWithdrawProceeds("0", "alice", dest);
+  const usdc = new PublicKey(USDC);
+  assert.deepEqual(await transfers(op.message_hex), [
+    { to: (await ata(new PublicKey(dest), usdc)).toBase58(), amount: 15_050_000n },
+    { to: (await ata(TREASURY, usdc)).toBase58(), amount: 250_000n },
+  ]);
+  assert.equal(JSON.parse(op.detail).fee, "250000");
+});
+
+test("a cash-out takes the fee before the swap, and withdrawing the card is free", async () => {
+  w.deps.config = MAINNET_CASH_OUT as never;
+  w.balance = 100_000_000n;
+  const deposit = keypair().address;
+  w.checkout.nextPayoutAddress = deposit;
+  const op = await cashOutOps().prepareCashOut("0", "alice", "mock:usdc", "alice.near");
+  const usdc = new PublicKey(USDC);
+  assert.deepEqual(await transfers(op.message_hex), [
+    { to: (await ata(new PublicKey(deposit), usdc)).toBase58(), amount: 99_000_000n },
+    { to: (await ata(TREASURY, usdc)).toBase58(), amount: 1_000_000n },
+  ]);
+
+  w.deps.db.updateOp(op.id, { state: "expired" }); // free the one signing slot this test world has
+  w.card.record.status = "Opened";
+  w.card.record.card_mint = MINT;
+  w.deps.contract.checkCardMessage = async () => ({ moves_card: true, uses_durable_nonce: true });
+  const card = await new CardOps(w.deps).prepareWithdrawCard("0", "alice", keypair().address);
+  assert.deepEqual(await transfers(card.message_hex), []);
+});
+
+test("too little USDC to cover the fee is refused before anything is signed", async () => {
+  w.balance = 200_000n;
+  await assert.rejects(cashOutOps().prepareWithdrawProceeds("0", "alice", keypair().address), /too small/);
+  await assert.rejects(cashOutOps().prepareCashOut("0", "alice", "mock:usdc", "alice.near"), /too small/);
 });
 
 test("cash-out refuses the wrong kind of address and someone who doesn't own the NFT", async () => {
@@ -504,7 +557,8 @@ test("cash-out refuses the wrong kind of address and someone who doesn't own the
 
 test("cash-out follows the swap to the end, funds the deposit once, and reports the result", async () => {
   const funded: string[] = [];
-  w.deps.fundTestCashOut = async (d) => { funded.push(d); return "fund-tx"; };
+  const fundedAmounts: bigint[] = [];
+  w.deps.fundTestCashOut = async (d, amount) => { funded.push(d); fundedAmounts.push(amount); return "fund-tx"; };
   const ops = cashOutOps();
   const op = await ops.prepareCashOut("0", "alice", "mock:usdc", "alice.near");
   await ops.advanceCashOuts();
@@ -517,6 +571,7 @@ test("cash-out follows the swap to the end, funds the deposit once, and reports 
   assert.equal(end.swap_deposit_tx, "fund-tx");
   assert.ok(end.swap_dest_tx);
   assert.equal(funded.length, 1);
+  assert.equal(fundedAmounts[0], w.balance - exitFee(w.balance)); // the treasury funds only what's left after the fee
   await ops.advanceCashOuts();
   assert.equal(funded.length, 1);
 });

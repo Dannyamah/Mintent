@@ -6,7 +6,7 @@ import { addressFor, AssetPicker, chainLabel, rankAssets } from "./Checkout";
 import type { LoginWallet } from "./privy";
 import { api, insured, nearAcct, rarityOf, short, solanaAddr, solanaTx, statusLabel, timeLeft, units, usd, type Card, type Health, type Op, type PayAsset } from "./api";
 import { CopyButton, EASE, RarityBadge, Skeleton, Tilt, useNow, useToast } from "./ui";
-import { sellbackPrice } from "./verifyMessage";
+import { exitFee, sellbackPrice } from "./verifyMessage";
 import { refusal, type SigningIntent, type Wallet as WalletT } from "./wallet";
 
 type Action = "sellback" | "withdrawCard" | "cashOut" | "transfer";
@@ -142,6 +142,9 @@ export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: st
   const rarity = rarityOf(card.record.rarity);
   const s = card.record.status;
   const proceeds = units(card.proceedsUnits);
+  const proceedsUnits = BigInt(card.proceedsUnits || "0");
+  const fee = proceedsUnits > 0n ? units(exitFee(proceedsUnits).toString()) : 0;
+  const coversFee = proceedsUnits > exitFee(proceedsUnits);
   const lockedUntil = Number(card.locked_until_ms);
   const lockedMinutes = lockedUntil > now ? Math.ceil((lockedUntil - now) / 60000) : 0;
   const busy = status !== null;
@@ -213,11 +216,11 @@ export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: st
         await signAndSend(await api.withdrawCard(tokenId, wallet!.accountId, destination.trim()), { kind: "withdrawCard", destination: destination.trim() }, "The card is in your wallet. You can now redeem the physical card on Collector Crypt's site, or list it on a marketplace.");
       } else if (action === "cashOut" && payout === DIRECT) {
         setStatus({ text: "Preparing the withdrawal", since: Date.now() });
-        await signAndSend(await api.withdrawProceeds(tokenId, wallet!.accountId, destination.trim()), { kind: "withdrawUsdc", destination: destination.trim(), amount: card.proceedsUnits }, "The USDC is on its way to your address.");
+        await signAndSend(await api.withdrawProceeds(tokenId, wallet!.accountId, destination.trim()), { kind: "withdrawUsdc", destination: destination.trim(), total: card.proceedsUnits }, `${usd(proceeds - fee)} USDC is on its way to your address.`);
       } else if (action === "cashOut" && op) {
         const prepared = op;
         const d = JSON.parse(prepared.detail) as { depositAddress: string; quote: unknown };
-        await signAndSend(prepared, { kind: "cashOut", recipient: destination.trim(), destinationAsset: payout, amount: card.proceedsUnits, depositAddress: d.depositAddress, quote: d.quote }, "Your USDC has been sent to the swap.");
+        await signAndSend(prepared, { kind: "cashOut", recipient: destination.trim(), destinationAsset: payout, total: card.proceedsUnits, depositAddress: d.depositAddress, quote: d.quote }, "Your USDC has been sent to the swap.");
         setSwapping(prepared.id);
       } else if (action === "cashOut") {
         // Two steps: show what they'll receive first, and only ask for a signature after that.
@@ -314,6 +317,11 @@ export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: st
                 {action === "withdrawCard" && <p>Moves the real card to your own Solana wallet. You'll need that wallet to redeem the physical card on Collector Crypt's site. This NFT will no longer hold a card.</p>}
                 {action === "cashOut" && !op && <>
                   <p>Cash out <strong>{usd(proceeds)} USDC</strong> as any coin, on any chain.</p>
+                  <dl className="sum" data-fee>
+                    <div><dt>Mintent fee (1%, min $0.25)</dt><dd>{usd(fee)}</dd></div>
+                    <div className="sum__total"><dt>{payout === DIRECT ? "You receive" : "Goes into the swap"}</dt><dd>{coversFee ? `${usd(proceeds - fee)} USDC` : "Too small"}</dd></div>
+                  </dl>
+                  {!coversFee && <p className="error" role="alert">This NFT holds less than the $0.25 minimum fee, so it can't be cashed out.</p>}
                   <AssetPicker legend="Receive" assets={[usdcOnSolana, ...payouts]} value={payout} onChange={(id) => {
                     setPayout(id);
                     setDestination(addressFor(id === DIRECT ? "sol" : payouts.find((a) => a.assetId === id)?.chain, loginWallet));
@@ -323,7 +331,7 @@ export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: st
                   const d = JSON.parse(op.detail) as CashOutDetail;
                   return (
                     <div className="stack" data-cashout="quote">
-                      <p>You send <strong>{usd(proceeds)} USDC</strong> and receive about <strong>{coin(d.amountOut, d)} {d.symbol}</strong> on {chainLabel(d)}{d.minAmountOut ? `, and at least ${coin(d.minAmountOut, d)} ${d.symbol}` : ""}.</p>
+                      <p>After the {usd(fee)} fee, <strong>{usd(proceeds - fee)} USDC</strong> goes into the swap, and you receive about <strong>{coin(d.amountOut, d)} {d.symbol}</strong> on {chainLabel(d)}{d.minAmountOut ? `, and at least ${coin(d.minAmountOut, d)} ${d.symbol}` : ""}.</p>
                       <p className="hint">To <code>{d.recipient}</code>{d.timeEstimateSeconds ? `. Takes about ${Math.max(1, Math.round(d.timeEstimateSeconds / 60))} min` : ""}. If the swap can't complete, the money is refunded{health.network === "testnet" ? " to the test treasury" : " to this NFT's address"}.</p>
                     </div>
                   );
@@ -337,7 +345,7 @@ export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: st
                   </div>
                 )}
                 <div className="actions">
-                  <button className="btn btn--primary" disabled={(action !== "sellback" && !destination.trim()) || (action === "sellback" && quoted === null)} onClick={confirm}>{action === "cashOut" && payout !== DIRECT && !op ? "Get quote" : "Confirm"}</button>
+                  <button className="btn btn--primary" disabled={(action !== "sellback" && !destination.trim()) || (action === "sellback" && quoted === null) || (action === "cashOut" && !coversFee)} onClick={confirm}>{action === "cashOut" && payout !== DIRECT && !op ? "Get quote" : "Confirm"}</button>
                   <button className="btn btn--ghost" onClick={reset}>Cancel</button>
                 </div>
                 {action !== "transfer" && (action !== "cashOut" || payout === DIRECT || op) && <p className="hint">Confirming locks NFT transfers for 5 minutes.</p>}

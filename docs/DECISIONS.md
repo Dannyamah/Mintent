@@ -11,6 +11,14 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-031 · 9 Nov · Exit fee on USDC withdrawals and cash-outs
+
+- **Decision (your call):** 1%, at least $0.25, on USDC withdrawals and cash-outs, paid to the treasury in the same transaction. Withdrawing the card is free. Pack purchases keep their 1% fee.
+- **Why:** it covers the Solana rent (about $0.18 for a new token account) and fees the treasury pays for each exit.
+- **Safety:** the rule is pinned in the app as well as the relayer, and a test keeps them equal. The app refuses to sign unless the fee is exactly that and goes to the treasury, so a compromised relayer can't raise it. Cash-out quotes are for the amount after the fee. An amount that can't cover the $0.25 minimum can't be cashed out.
+- **No contract change:** the deployed contract already allows USDC transfers from a card's address, so nothing is redeployed.
+- **Status:** Adopted.
+
 ### D-030 · 9 Nov · Mainnet accounts created; a real purchase passes the safety check
 
 - **Accounts (you created them, 9 Nov):** contract `mintent.xinju.near` (3.5 NEAR), relayer `relayer.xinju.near` (1.5 NEAR), both funded from `xinju.near`. Their keys are in `~/.near-credentials/mainnet/` and match the chain. The contract isn't deployed yet.

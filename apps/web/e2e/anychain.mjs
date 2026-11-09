@@ -94,6 +94,8 @@ try {
   const buyer = await page.locator(".acct__id").getAttribute("data-account");
   log(`buyer ${buyer}`);
 
+  // SKIP_BASE_PAYMENT: only the NEAR-paid pack and its cash-out, when test USDC is short.
+  if (!process.env.SKIP_BASE_PAYMENT) {
   log(`Funding a throwaway Base Sepolia wallet, ${payer.address}`);
   execFileSync("npx", ["tsx", "src/fund-base-wallet.ts", NEAR_RECIPIENT, payer.address, "26500000"], { cwd: new URL("../../../scripts/", import.meta.url).pathname, stdio: "inherit" });
 
@@ -136,6 +138,8 @@ try {
   const gained = (await nearUsdc(NEAR_RECIPIENT)) - before;
   check("the recipient's balance really rose on NEAR", gained > 0n, `+${Number(gained) / 1e6} USDC`);
 
+  }
+
   if (process.env.ONE_CASH_OUT) {
     log("ONE_CASH_OUT is set, so stopping before the second pack, to save test USDC");
     await browser.close();
@@ -164,7 +168,7 @@ try {
   await page.waitForSelector(".activity li", { timeout: 30000 });
   await page.waitForTimeout(1500);
   const activity = (await page.locator(".activity li").allInnerTexts()).join(" | ").replace(/\n/g, " ");
-  check("the dashboard's activity lists both cash-outs", /Cashed out .* to USDC on Base/.test(activity) && /Cashed out .* to USDC on NEAR/.test(activity), activity.slice(0, 220));
+  check("the dashboard's activity lists the cash-outs", /Cashed out .* to USDC on Base/.test(activity) && (process.env.SKIP_BASE_PAYMENT || /Cashed out .* to USDC on NEAR/.test(activity)), activity.slice(0, 220));
   await page.locator(".activity").scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${out}/dashboard.png` });
   check("no page errors", pageErrors.length === 0, pageErrors.join("; "));

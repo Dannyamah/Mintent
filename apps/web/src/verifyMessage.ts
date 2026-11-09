@@ -108,9 +108,16 @@ export interface MessageContext {
   asset: string | null;
 }
 
+/** Mintent's exit fee, pinned in the app: 1%, at least $0.25. Must equal packages/shared/src/fees.ts (a test checks). */
+export function exitFee(total: bigint): bigint {
+  const percent = (total * 100n + 9_999n) / 10_000n;
+  return percent > 250_000n ? percent : 250_000n;
+}
+
 export type MessageIntent =
   | { kind: "withdrawCard"; destination: string }
-  | { kind: "sendUsdc"; destination: string; amount: string }
+  /** `total` leaves the NFT: total minus the fee to `destination`, and the fee to the treasury. */
+  | { kind: "sendUsdc"; destination: string; total: string }
   | { kind: "sellback"; price: string };
 
 const u64 = (data: Uint8Array, at: number) => new DataView(data.buffer, data.byteOffset).getBigUint64(at, true);
@@ -143,9 +150,9 @@ function checkCardTransfer(ix: ParsedInstruction, ctx: MessageContext, destinati
 }
 
 /** Returns the account the new token account is for. */
-function checkTokenAccount(ix: ParsedInstruction, ctx: MessageContext, owner: string): string {
+function checkTokenAccount(ix: ParsedInstruction, ctx: MessageContext, owner: string, why = "the money goes to a different address"): string {
   if (ix.program !== ATA || ix.data.length !== 1 || ix.data[0] !== 1) refuse("unexpected step instead of creating a token account");
-  if (ix.accounts[2] !== owner) refuse("the money goes to a different address");
+  if (ix.accounts[2] !== owner) refuse(why);
   if (ix.accounts[3] !== ctx.usdcMint) refuse("it uses a different coin");
   if (ix.accounts[5] !== TOKEN) refuse("it uses an unexpected token program");
   return ix.accounts[1];
@@ -161,14 +168,20 @@ export function checkMessage(hex: string, ctx: MessageContext, intent: MessageIn
   }
 
   if (intent.kind === "sendUsdc") {
-    if (s.length !== 2) refuse("it has extra steps");
-    const account = checkTokenAccount(s[0], ctx, intent.destination);
-    const pay = s[1];
-    if (pay.program !== TOKEN || pay.data[0] !== 12 || pay.data.length !== 10) refuse("unexpected step instead of a USDC transfer");
-    if (pay.accounts[1] !== ctx.usdcMint) refuse("it sends a different coin");
-    if (pay.accounts[2] !== account) refuse("the money goes to a different address");
-    if (pay.accounts[3] !== ctx.card) refuse("the money isn't sent by this NFT's address");
-    if (u64(pay.data, 1).toString() !== intent.amount) refuse("the amount is different");
+    if (s.length !== 4) refuse("it has extra steps");
+    const usdcTo = (create: ParsedInstruction, pay: ParsedInstruction, owner: string, why: string) => {
+      const account = checkTokenAccount(create, ctx, owner, why);
+      if (pay.program !== TOKEN || pay.data[0] !== 12 || pay.data.length !== 10) refuse("unexpected step instead of a USDC transfer");
+      if (pay.accounts[1] !== ctx.usdcMint) refuse("it sends a different coin");
+      if (pay.accounts[2] !== account) refuse(why);
+      if (pay.accounts[3] !== ctx.card) refuse("the money isn't sent by this NFT's address");
+      return u64(pay.data, 1);
+    };
+    const net = usdcTo(s[0], s[1], intent.destination, "the money goes to a different address");
+    const fee = usdcTo(s[2], s[3], ctx.treasury, "the fee goes to a different address");
+    const total = BigInt(intent.total);
+    if (fee !== exitFee(total)) refuse("the fee is different");
+    if (net + fee !== total) refuse("the amount is different");
     return;
   }
 
