@@ -17,7 +17,8 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 - **Addresses these names lead to:** treasury `A5SBNb1f6ECxXLWDoHk2onu6YdNuSjdeANAxYXqJj1k5`. Derived, so they change if the contract's name changes.
 - **Purchase check:** `scripts/src/mainnet-pack-check.ts` got a real unsigned $25 purchase from Collector Crypt, and `assertSafePackTx` passed it. Nothing was signed or sent. The transaction has Collector Crypt as fee payer, with no lookup tables.
 - **Deployed (your approval, 9 Nov):** the same code as the tested testnet contract, hash `CaVHH4mYkqTBG2BC2Tn2ih3ie8KKAdT8YdoYNx2aBwsS`, deploy tx `AqCcPnmiodXsCZ5hxMhBUSTJ2etBHZbstdLjxuoL9eNm`, init tx `G8vaWRqVgePM4LhVRFnYfwbjFzGhnYY7RAa9mYAYpPwZ`. `owner_id` is `xinju.near`, relayer is `relayer.xinju.near`.
-- **Still to do:** the owner must add the USDC mint and nonce accounts, and the treasury needs SOL. Removing the full-access key is still your decision, and hasn't been done.
+- **Set up (your approval, 9 Nov):** you sent 0.03 SOL to the treasury. NEAR's mainnet signing network signed three real Solana transactions creating the nonce accounts, in 8 to 13 s each, and `xinju.near` registered them and allowed USDC. `scripts/src/setup-mainnet.ts`. Treasury left with 0.0268 SOL.
+- **Still to do:** the real purchase needs your separate approval. Removing the full-access key is still your decision, and hasn't been done.
 - **Status:** Adopted.
 
 ### D-029 · 9 Nov · The app checks every message before signing; payment proof no longer needs a reported hash; mainnet demo uses the $25 pack
