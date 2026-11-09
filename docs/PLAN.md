@@ -22,7 +22,7 @@ Last updated: **8 Nov 2026**. All dates and times are UTC. Anything marked **(ap
 | Contract hardening | **Done 8 Nov.** Signing policy and transfer locks after the pre-sign attack was proven (D-015, `THREAT-MODEL.md`). 46 unit tests and a sandbox run. |
 | `packages/checkout`, `services/relayer` | **Done 8 Nov.** 7 + 31 tests. HTTP API smoke-tested. |
 | `pnpm demo:testnet` | **Passes from nothing: 23/23 checks in 6.3 min on real networks** (`EVIDENCE.md`). |
-| Web app | **Not started.** |
+| Web app | **Working on testnet, 8 Nov:** rebuilt with motion and depth (D-025): gallery home page, pack shop and detail pages, checkout, tap-to-tear reveal, dashboard, card page with proof panel, transfer, sell back, withdraw, security page. Two-user browser test passes on real networks, 18 of 18 (`apps/web/e2e/flow.mjs`). Privy email sign-in added 9 Nov (D-026); a real login still has to be run. Open for mainnet prep: no retry path for `needs_attention` orders; check real sell-back availability. |
 | Mainnet | **Nothing run yet.** Dry quotes only. |
 | Blocker 2 (redemption) | **Decided (D-022):** withdraw the card to the owner's own Solana wallet, then redeem on Collector Crypt's site. No partnership needed. |
 | Blocker 4 (pricing) | **Verified.** |
@@ -97,6 +97,8 @@ Own inventory, own odds, a pricing engine, Magic Eden/Tensor connectors, OutLaye
 
 ### Decisions still open (yours)
 
+0. **Franchise art on the home page.** The gallery wall shows real cards, so franchise art and names printed on slabs are visible, which sits close to your "no franchise branding in our own UI" rule. It's the cards' own media, loaded live, with nothing shipped or named by us. Recommendation: keep it for the hackathon and get legal advice before any public launch.
+
 1. Confirm the design above (front end to CC plus card-account NFTs). Work since "go" assumes it.
 2. Tracks: **`nfts` + `realworld` + `open`** is my recommendation (`realworld` is justified by the reusable checkout). `games` is not recommended.
 3. Mainnet budget (~$130–180 by 11 Nov) and the source chain (SOL recommended, D-021).
@@ -129,7 +131,7 @@ mintent/
 ├─ packages/checkout/      # 1Click checkout: quote → deposit address → status; backends mainnet | tidepool | mock
 ├─ packages/shared/        # types, CC API client, Solana derivation & tx helpers, per-network config
 ├─ services/relayer/       # TypeScript: order state machine (SQLite), CC gacha & marketplace, MPC orchestration
-├─ apps/web/               # Next.js + Privy + @hot-labs/near-connect + near-api-js 7
+├─ apps/web/               # React + Vite + Privy + near-api-js 7
 ├─ scripts/                # create-testnet-account, deploy-testnet, spikes [done]; demo-testnet, verify-pull, fixtures/
 └─ docs/                   # CONTEXT.md, RESEARCH-FINDINGS.md, PLAN.md
 ```
@@ -144,6 +146,6 @@ mintent/
 | **TypeScript relayer and checkout** | CC, Solana (`@solana/web3.js` 3.1), the 1Click SDK and Privy are all TypeScript-first. |
 | **Build Solana transactions off-chain, sign on-chain** | The contract decides *who* may sign for *which* path. Card owners sign anything for their own card. The treasury is relayer-only, which is a documented trust assumption. |
 | **Tidepool for testnet 1Click** | The only Intents path on testnet, using the same `/v0` API and the official SDK through a base-URL swap. It's unofficial and custodial: test tokens only, never our partner JWT, a fixture fallback, and no reliance on swap hashes (mainnet swaps are confidential). |
-| **Privy via near-connect** | Mainnet email or passkey sign-in with no approval queue. near-connect also offers HOT and Meteor. |
+| **Privy, direct** | Mainnet email or passkey sign-in with no approval queue (D-026). |
 | **SQLite in the relayer** | Durable order state and idempotency with zero infrastructure. |
 | **No OutLayer in the must-haves** | CC's ECVRF already proves fairness. OutLayer's TEE-signature "VRF" would be weaker and duplicative. |

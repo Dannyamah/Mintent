@@ -18,10 +18,35 @@ export type NearNetwork = keyof typeof NETWORKS;
 export const ED25519_DOMAIN = 1;
 
 /** A NEAR provider that fails over between RPC endpoints. */
+/**
+ * The most useful error behind a failover: the first that isn't just a provider being busy or unreachable.
+ * Failover wraps everything in FailoverRpcError, which hides the real error from near-api-js. In particular, its
+ * automatic recovery from a stale nonce only fires on InvalidNonceError, so without this a stale nonce never recovers.
+ */
+export function realRpcError(e: unknown): unknown {
+  const errors = (e as { errors?: unknown[] })?.errors;
+  if (!Array.isArray(errors) || !errors.length) return e;
+  return errors.find((x) => !/\b429\b|rate limit|fetch failed|timed? ?out|ECONN|ENOTFOUND|socket|\b5\d\d\b/i.test(String(x))) ?? errors[0];
+}
+
+/** Wrap a provider so every call throws the real error instead of a FailoverRpcError. */
+export function withRealErrors<P extends object>(provider: P): P {
+  return new Proxy(provider, {
+    get(target, key) {
+      const value = Reflect.get(target, key, target);
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => {
+        const out = (value as (...a: unknown[]) => unknown).apply(target, args);
+        return out instanceof Promise ? out.catch((e) => { throw realRpcError(e); }) : out;
+      };
+    },
+  });
+}
+
 export function nearProvider(network: NearNetwork, rpc?: string): FailoverRpcProvider {
   const own = (process.env.NEAR_RPC_URLS ?? "").split(",").map((u) => u.trim()).filter(Boolean);
   const urls = [...own, ...(rpc ? [rpc] : []), NETWORKS[network].rpc, ...NETWORKS[network].rpcFallbacks];
-  return new FailoverRpcProvider([...new Set(urls)].map((url) => new JsonRpcProvider({ url }, { retries: 3, wait: 800, backoff: 1.6 })));
+  return withRealErrors(new FailoverRpcProvider([...new Set(urls)].map((url) => new JsonRpcProvider({ url }, { retries: 3, wait: 800, backoff: 1.6 }))));
 }
 
 export function accountFromKey(network: NearNetwork, accountId: string, privateKey: string, rpc?: string): Account {

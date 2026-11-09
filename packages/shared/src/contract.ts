@@ -23,6 +23,18 @@ export interface CardView {
 
 const TGAS = 1_000_000_000_000n;
 
+/** Concurrent calls from one key can collide on the nonce. NEAR rejects those outright, so a retry is safe. */
+async function retryNonce<T>(fn: () => Promise<T>): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= 4 || !/InvalidNonce|invalid nonce/i.test(String(e) + String((e as any)?.name))) throw e;
+      await new Promise((r) => setTimeout(r, 500 + 500 * i));
+    }
+  }
+}
+
 function signatureFrom(res: unknown): Uint8Array {
   const sig = (res as { signature?: number[] })?.signature;
   if (!Array.isArray(sig) || sig.length !== 64) throw new Error(`bad MPC response ${JSON.stringify(res).slice(0, 200)}`);
@@ -37,15 +49,20 @@ export class MintentContract {
     try {
       return (await this.relayer.provider.callFunction<any>({ contractId: this.contractId, method, args } as never)) as T;
     } catch (e: any) {
-      // The failover provider wraps errors. Surface the contract's own reason, such as a policy refusal.
-      const inner = (e?.errors as unknown[] | undefined)?.map(String).join("; ");
-      const panic = inner?.match(/panic_msg: "([^"]*)"/)?.[1];
-      throw new Error(panic ?? inner ?? String(e));
+      // Surface the contract's own reason, such as a policy refusal.
+      const text = String(e);
+      throw new Error(text.match(/panic_msg: "([^"]*)"/)?.[1] ?? text);
     }
   }
 
   getCard(tokenId: string): Promise<CardView | null> {
     return this.view("get_card", { token_id: tokenId });
+  }
+
+  /** Token ids an account owns, newest first. */
+  async tokensOf(accountId: string): Promise<string[]> {
+    const tokens = await this.view<{ token_id: string }[]>("nft_tokens_for_owner", { account_id: accountId, limit: 100 });
+    return tokens.map((t) => t.token_id).reverse();
   }
 
   getOrderToken(orderId: string): Promise<string | null> {
@@ -58,28 +75,28 @@ export class MintentContract {
   }
 
   async mintPack(orderId: string, receiver: string, packType: string): Promise<string> {
-    return (await this.relayer.callFunction({ contractId: this.contractId, methodName: "mint_pack", args: { order_id: orderId, receiver_id: receiver, pack_type: packType }, gas: 100n * TGAS })) as string;
+    return (await retryNonce(() => this.relayer.callFunction({ contractId: this.contractId, methodName: "mint_pack", args: { order_id: orderId, receiver_id: receiver, pack_type: packType }, gas: 100n * TGAS }))) as string;
   }
 
   async recordOpen(a: { tokenId: string; memo: string; cardMint: string; cardName: string; rarity: string; roll: number; insuredValueUsdCents: number; media: string | null }): Promise<void> {
-    await this.relayer.callFunction({
+    await retryNonce(() => this.relayer.callFunction({
       contractId: this.contractId,
       methodName: "record_open",
       gas: 100n * TGAS,
       args: { token_id: a.tokenId, memo: a.memo, card_mint: a.cardMint, card_name: a.cardName, rarity: a.rarity, roll: String(a.roll), insured_value_usd_cents: String(a.insuredValueUsdCents), media: a.media },
-    });
+    }));
   }
 
   async recordRelease(tokenId: string, reason: string): Promise<void> {
-    await this.relayer.callFunction({ contractId: this.contractId, methodName: "record_release", args: { token_id: tokenId, reason }, gas: 30n * TGAS });
+    await retryNonce(() => this.relayer.callFunction({ contractId: this.contractId, methodName: "record_release", args: { token_id: tokenId, reason }, gas: 30n * TGAS }));
   }
 
   async recordExitFailed(tokenId: string): Promise<void> {
-    await this.relayer.callFunction({ contractId: this.contractId, methodName: "record_exit_failed", args: { token_id: tokenId }, gas: 30n * TGAS });
+    await retryNonce(() => this.relayer.callFunction({ contractId: this.contractId, methodName: "record_exit_failed", args: { token_id: tokenId }, gas: 30n * TGAS }));
   }
 
   async signForTreasury(message: Uint8Array): Promise<Uint8Array> {
-    return signatureFrom(await this.relayer.callFunction({ contractId: this.contractId, methodName: "sign_for_treasury", args: { payload_hex: Buffer.from(message).toString("hex") }, deposit: 1n, gas: 100n * TGAS }));
+    return signatureFrom(await retryNonce(() => this.relayer.callFunction({ contractId: this.contractId, methodName: "sign_for_treasury", args: { payload_hex: Buffer.from(message).toString("hex") }, deposit: 1n, gas: 100n * TGAS })));
   }
 
   /** The token owner's call. In the app this runs in the user's own session, signed by the user's key. */

@@ -47,6 +47,21 @@ export interface CardCatalog {
   frontImage?: string;
 }
 
+/** One recent pull from CC's public feed. No names: our UI identifies a card by grade and value only. */
+export interface RecentPull {
+  mint: string;
+  image: string;
+  /** A small copy for the wall, about a quarter of the size. Falls back to `image`. */
+  thumb: string;
+  grader: string | null;
+  grade: string | null;
+  insuredValue: number;
+  url: string | null;
+  packType: string | null;
+  rarityTier: number | null;
+  at: string | null;
+}
+
 export class CcClient {
   constructor(private gacha: string, private api: string, private fetchImpl: typeof fetch = fetch) {}
 
@@ -96,9 +111,33 @@ export class CcClient {
     return data;
   }
 
-  async buybackAvailable(nft: string): Promise<{ available: boolean; expiresAt?: string; raw: unknown }> {
+  /** CC's real offer for a card: what it pays and until when. Use this, not a percentage of insured value. */
+  async buybackAvailable(nft: string): Promise<{ available: boolean; amountUnits: number; expiresAt: string | null }> {
     const { data } = await this.json(`${this.gacha}/api/buyback/available?nft=${nft}`);
-    return { available: Boolean(data?.available ?? data?.eligible), expiresAt: data?.buybackExpiresAt, raw: data };
+    return { available: data?.available === true, amountUnits: Number(data?.amount ?? 0), expiresAt: data?.buybackExpiresAt ?? null };
+  }
+
+  /** A resized card image from CC's public metadata service. */
+  imageUrl(mint: string, width: number): string {
+    return `https://${this.gacha.includes("//dev-") ? "nft-dev" : "nft"}.collectorcrypt.com/front/${mint}?width=${width}`;
+  }
+
+  /** Recent real pulls on CC's machines, for the gallery wall. */
+  async recentPulls(count = 50): Promise<RecentPull[]> {
+    const { data } = await this.json(`${this.gacha}/api/getAllWinners?count=${count}`);
+    const list: any[] = Array.isArray(data) ? data : (data?.data ?? []);
+    const seen = new Set<string>();
+    const out: RecentPull[] = [];
+    for (const w of list) {
+      const content = w?.nft?.content ?? {};
+      const image = content.files?.[0]?.cc_cdn ?? content.links?.image;
+      const mint = w?.nft_address ?? w?.nft?.id;
+      if (!image || !mint || seen.has(mint)) continue;
+      seen.add(mint);
+      const traits: Record<string, string> = Object.fromEntries((content.metadata?.attributes ?? []).map((a: any) => [a.trait_type, String(a.value)]));
+      out.push({ mint, image, thumb: this.imageUrl(mint, 320), grader: traits["Grading Company"] ?? null, grade: traits["The Grade"] ?? traits["GradeNum"] ?? traits["Grade"] ?? null, insuredValue: Number(w.insuredValue ?? 0), url: content.links?.external_url ?? null, packType: w.pack_type ?? null, rarityTier: w.prize_tier ?? null, at: w.created_at ?? null });
+    }
+    return out;
   }
 
   async card(mint: string): Promise<CardCatalog> {

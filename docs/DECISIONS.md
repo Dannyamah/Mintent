@@ -11,6 +11,38 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-026 · 9 Nov · Privy directly, without near-connect
+
+- **Decision:** the web app calls Privy's SDK directly (`@privy-io/react-auth` 3.51.3, `createWallet({ chainType: "near" })`, `useSignRawHash`). This replaces the "via near-connect" part of D-005.
+- **Why:** NEAR's guide recommends direct Privy for a web-style app with social login. near-connect would add a wallet manifest, a separate signing page and a client ID, and its only gain is third-party wallets, which Mintent's buyers don't need.
+- **Impact:** sign-in is email now. Passkey needs enabling in the Privy dashboard, then adding to `loginMethods`. Keys are held by Privy, and users can export them from the account menu. The test account stays on testnet only and is refused on mainnet. The SDK loads as a separate 399 kB (gzipped) chunk, so it doesn't delay the shop.
+- **Status:** Adopted. Not yet proven with a real login (see `EVIDENCE.md`).
+
+### D-025 · 8 Nov · Frontend rebuilt: dashboard, pack ceremony, real numbers only; test treasury refills itself
+
+- **Decision (your request):** the app was rebuilt with motion, depth and shadows, and now has a dashboard, a tap-to-tear pack opening, pack detail pages, a security page, an account menu, toasts, skeleton loading, a FAQ and a not-found page. It's still React + Vite, with `motion`, `lucide-react` and `uqr` added.
+- **Rule:** every dashboard number is read live from NEAR, Solana or Collector Crypt. There are no invented charts or estimates. Vault value is labelled as insured value, not a market price.
+- **Sell-back copy doesn't state a fixed window.** Collector Crypt's docs say 72 hours, but devnet returned a 30-day deadline, and 8 of 8 recent mainnet pulls returned `available: false` when checked read-only. The UI says "limited time" and shows the live deadline from the API. **Check real sell-back availability during the mainnet run.** If new pulls can't be sold back straight away, the pitch and reveal copy need to change.
+- **Testnet treasury top-up:** a browser run stalled because the treasury ran out of devnet USDC-Dev. Testnet payments settle in a different mint, so that balance only drains. The relayer now refills it from the devnet faucet when it's under 100. That code doesn't exist on mainnet, where the buyer's payment funds the purchase.
+- **Known gap, for mainnet prep:** an order that reaches `needs_attention` has no retry path, because the state replaces the step it stopped at. That run's order stayed stuck after the treasury was refilled. Test money only here, but a paid mainnet order would need manual recovery.
+- **Status:** Adopted.
+
+### D-024 · 8 Nov · The relayer sponsors NEAR gas for anyone holding a token
+
+- **Why:** someone given an NFT with no NEAR couldn't act on their own card. NEAR checks balance at about 10x the gas price against prepaid gas (measured on testnet: 30 Tgas needed 0.0309 NEAR), so a small fixed amount failed.
+- **Impact:** the relayer tops up an account when it pays for an order or starts an action on a token it owns, sized from the live gas price. The float is about 0.1 NEAR per new user at testnet's gas price and mostly stays in their account. **That's real money on mainnet relative to a 1% fee, so check it against the mainnet gas price on 11 Nov.** Meta-transactions would remove it, but they're out of scope for the hackathon.
+- **Status:** Adopted.
+
+### D-023 · 8 Nov · Frontend: gallery hero (your choice), React + Vite, browser key on testnet
+
+- **Decision (yours):** the home page uses the "gallery" concept from the reel you sent: a wall of work framing the headline. **I could only read the reel's caption and thumbnail, not the video.**
+- **Why:** real pulled slabs are the most persuasive thing we can show, and the wall is live data, not stock art.
+- **Impact:**
+  - The wall shows recent real pulls from Collector Crypt's public feed, loaded at runtime. No card art ships in the repo, and tiles are labelled by grade and value only.
+  - Vite instead of Next.js: there's no server rendering to gain from, and it deploys as static files.
+  - On testnet, sign-in is a key generated in the browser, with no seed phrase or popup. **Mainnet needs Privy** before real users can sign in.
+- **Status:** Adopted. Whether franchise art on the home page is acceptable for a public launch is an open question (see PLAN.md).
+
 ### D-022 · 8 Nov · No Collector Crypt partnership, keys or contact during the build
 
 - **Decision (yours, stated before the build):** Mintent is built entirely on CC's public, keyless APIs. Any partnership comes after the full build.
