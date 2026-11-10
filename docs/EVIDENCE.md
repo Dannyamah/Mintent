@@ -183,9 +183,15 @@ The testnet Keeper got a key that can call only `keeper_sign` and `keeper_payout
 
 `keeper.mjs` then ran through the real app with the relayer holding only that key: 14 checks in 6.0 minutes, on token 32 (a $12.75 offer). The five contract attacks were refused again. They were sent with the account's full-access key, a stronger attacker than the server's key. The Keeper held the card in hold mode, then sold it ([NEAR](https://testnet.nearblocks.io/txns/BYssTepE2KiuYNYPLfW6V4PCQGUxHxq5evUtCpeYfAV1)) and paid out ([NEAR](https://testnet.nearblocks.io/txns/2XiD14jRw9LmheeQXAwmmMvZUFZ6V66Cf4M22jPrCFqA)). Both were signed by the function-call key with no deposit. The owner's fresh address received exactly $12.50, the sale less the $0.25 fee. `pnpm verify:keeper mintent-con-mw7mmwr5.testnet 32` passes.
 
+## Mainnet: the Keeper on a function-call key, 10 Nov
+
+The mainnet contract was upgraded so the Keeper's methods need no deposit ([tx](https://nearblocks.io/txns/3Yh2DGBs41q4qWprjS4QZwCxdnY8nSRS9zMnZhmeWwit)), keeping its owner, relayer, nonces, payment token and treasury. `keeper.xinju.near` got a key that can call only `keeper_sign` and `keeper_payout` on `mintent.xinju.near` ([tx](https://nearblocks.io/txns/9S64xTiQV5N2nerLUiuYzk52s2A3XVLe2tYJZ6b39Fy8)). All nine of `restrict-keeper-key.ts`'s checks pass on mainnet, including the same five refusals as on testnet.
+
+**A bug found on the way.** Two of those checks first failed with "Not enough balance": NEAR reserves a call's gas up front at a worst-case price, and 100 TGas needed 0.1009 NEAR, more than the Keeper's 0.0999. So on mainnet the Keeper could never have made a single call, with either key. A real Keeper call burns about 16 TGas, so it now reserves 50 TGas. On testnet, with 50 TGas, token 34 was sold ([NEAR](https://testnet.nearblocks.io/txns/7GG2WtadCX8bjVx6YFYeeGLaq4ev5AXeNp3YSXwkp8Gc), 15.9 TGas burnt) and paid out ([NEAR](https://testnet.nearblocks.io/txns/7hGPZ6isMwh44rSf5dSxpTPCjtzLjYbvxK4qNmPRHugo), 13.7 TGas burnt), both signed by the function-call key, and `keeper.mjs` passed all 14 checks. `pnpm verify:keeper mintent-con-mw7mmwr5.testnet 34` passes.
+
 ## What has not been shown
 
-- **The Keeper on mainnet.** The mainnet contract has Keeper v2 (upgraded 9 Nov), and `keeper.xinju.near` exists, but no mainnet sale or payout has run. Its function-call key and the no-deposit upgrade are waiting for approval.
+- **The Keeper on mainnet.** The mainnet contract has Keeper v2 (upgraded 9 Nov), and `keeper.xinju.near` exists, but no mainnet sale or payout has run. It now runs on a function-call key, which passed its on-chain checks.
 - **One-click payment with a real extension, or on mainnet.** It ran with an injected test wallet on Base Sepolia.
 
 - **No mainnet run.** The contract is deployed at `mintent.xinju.near`, but holds no tokens yet. One real, unsigned $25 mainnet purchase transaction passed `assertSafePackTx` on 9 Nov (`scripts/src/mainnet-pack-check.ts`), with nothing signed or sent. No purchase, sell-back or cash-out has run on mainnet.

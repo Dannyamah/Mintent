@@ -38,7 +38,7 @@ Built at NEAR HACKATHON for these tracks:
 
 The app explains all of this for users on its [How it works](https://web-testnet-production-2eb9.up.railway.app/#/docs) page.
 
-> **Status, 10 Nov 2026: everything below has run on public test networks with no real money. The contract is deployed on mainnet, but no purchase has run there yet.** NEAR Intents has no testnet, so the test site uses Tidepool, a community test version of the 1Click API. See [Limits](#limits).
+> **Status, 10 Nov 2026: everything below has run on public test networks with no real money. The contract is deployed on mainnet, and its Keeper runs on a function-call key there too, but no purchase has run on mainnet yet.** NEAR Intents has no testnet, so the test site uses Tidepool, a community test version of the 1Click API. See [Limits](#limits).
 
 **Hosted:** [testnet, free](https://web-testnet-production-2eb9.up.railway.app) · [mainnet, real money](https://web-mainnet-production-b5e0.up.railway.app)
 
@@ -99,7 +99,7 @@ Every step of the real runs, with transaction links, is in [docs/EVIDENCE.md](do
 | Cash out to any chain | Sell-back money arrived as USDC on [Base Sepolia](https://sepolia.basescan.org/address/0x55528b52ab7000887f0bf1543c5b878c2cae66ca) and on NEAR ([evidence](docs/EVIDENCE.md)) |
 | The app won't sign what you didn't ask for | `apps/web/e2e/tamper.mjs` plays a compromised relayer against the real app: refused, nothing signed, card unmoved. `apps/web/e2e/verify.test.mts` covers the other attacks |
 | An agent can act for you without being able to take anything | The Keeper's real key, refused five times on-chain: [withdraw the card](https://testnet.nearblocks.io/txns/DRXHsP5JVZ1fgJDunY4km5tH1je45xH91bzBGkhK69cb), [sell below the minimum](https://testnet.nearblocks.io/txns/b3snbsDCNESNHKD5RXWUKxJVLhZMut7fCLdjYq3nvAt), [take the sale](https://testnet.nearblocks.io/txns/FzJsheVo8Qus37TUMTu8vSDSdT6dHUdYrkWD9LvUfxgS), [pay itself](https://testnet.nearblocks.io/txns/6ctHushdEPgkxjdShxXgAa3A8prFuSTT6pdCYu2uowbP), [take a bigger fee](https://testnet.nearblocks.io/txns/EDx5ZEWGoAEK9zcCWTxmGH4cyC31d6Q45KyBGyGmxWR9). Then it sold at the owner's minimum and paid the owner exactly the sale less the fee. `pnpm verify:keeper mintent-con-mw7mmwr5.testnet 25` |
-| The agent's key can't do anything else | Its key can call only `keeper_sign` and `keeper_payout` on the contract. With it, NEAR refused sending NEAR, adding a key, `nft_transfer`, `sign_for_card` and other contracts ([evidence](docs/EVIDENCE.md)). The live sale [BYssTepE…](https://testnet.nearblocks.io/txns/BYssTepE2KiuYNYPLfW6V4PCQGUxHxq5evUtCpeYfAV1) was signed with that key. `pnpm verify:keeper mintent-con-mw7mmwr5.testnet 32` |
+| The agent's key can't do anything else | Its key can call only `keeper_sign` and `keeper_payout` on the contract. With it, NEAR refused sending NEAR, adding a key, `nft_transfer`, `sign_for_card` and other contracts ([evidence](docs/EVIDENCE.md)). The live sale [BYssTepE…](https://testnet.nearblocks.io/txns/BYssTepE2KiuYNYPLfW6V4PCQGUxHxq5evUtCpeYfAV1) was signed with that key. On mainnet, `keeper.xinju.near` has the same kind of key ([tx](https://nearblocks.io/txns/9S64xTiQV5N2nerLUiuYzk52s2A3XVLe2tYJZ6b39Fy8)), and the same checks pass. `pnpm verify:keeper mintent-con-mw7mmwr5.testnet 32` |
 | Pay from your wallet in one click | A wallet signed in through Privy [paid from Base Sepolia](https://sepolia.basescan.org/tx/0xcf36efe9d263996d001ad52feceefa96e57fd8f4d67f5f66d5c5c78b84ac8385) with one button and received token 27 |
 | The NFT tells wallets the truth | `nft_token` for token 25 reads "Sold back: …" once its card has left |
 | A paid order recovers from outages, and is never paid for twice | Tests in `services/relayer/test/relayer.test.ts`; recovery also [ran live](docs/EVIDENCE.md) |
@@ -175,10 +175,9 @@ node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 - **Wallet sign-in** was tested with injected test wallets, for Ethereum and for Solana, through Privy's real service, not with real extensions. NEAR's own wallets (HOT, Meteor) aren't supported.
 - **Some wallets warn about the hosted sites.** Jupiter called the `*.up.railway.app` address "likely malicious", probably because scams use the same shared host. A custom domain is planned.
 - **Sell-back timing on mainnet is unconfirmed.** Collector Crypt's docs say 72 hours, devnet offered 30 days, and 8 of 8 recent mainnet pulls were not available when checked. Those cards may already have been sold.
-- **Redeeming a physical card is untested.** The path is to withdraw the card to your own Solana wallet, then redeem on Collector Crypt's site like any holder.
+- **Redeeming a physical card is untested.** The path is to withdraw the card to your own Solana wallet, then redeem on Collector Crypt's site like any holder. Collector Crypt burns its token when it ships, and estimates [2–3 weeks in the US and about 5 elsewhere](https://docs.jup.ag/user-docs/trade/gacha/shipping). Redeeming from inside Mintent would need Collector Crypt's partner-only Shipping API.
 - **Trust assumptions.** The relayer controls the treasury's signatures and can write wrong records to the contract. It can't act on a card by itself, and the app checks each message it prepares before signing. `verify:pull` reads the chains directly, so false records can be caught. The check's own limits, including BTC cash-outs and a replaced website, are in the threat model.
 - **The Keeper's decision is a rule, not a model.** It sells while the offer meets your minimum, now or in the offer's last day. The safety comes from the contract, not from the agent being clever. It has run on testnet only.
-- **On mainnet the Keeper still has its full-access key** until the contract upgrade that lets it use a function-call key is approved. On testnet it runs on the function-call key.
 - **The Keeper pays out to Solana only.** Cash-outs to other chains go through a fresh quote each time, so they can't be pinned in advance in a permission.
 - **One-click payment** has run with an injected test wallet on Base Sepolia, not a real extension or mainnet.
 - **After 24 hours of failed retries, a stuck paid order needs a person.** There's no automated refund.
@@ -193,6 +192,7 @@ node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
   - TypeScript: `near-api-js`, `@solana/web3.js`, `bs58`, `@defuse-protocol/one-click-sdk-typescript`
   - Web: `react`, `vite`, `motion`, `lucide-react`, `uqr`, `@privy-io/react-auth`, `@solana/kit`, `@solana-program/memo`, `@solana-program/system`, `@solana-program/token`
   - Tests: `playwright-core`, `viem`
+- **AI coding assistant:** Claude Code (Anthropic) was used throughout the build. It wrote most of the code, tests and docs, and ran the test transactions, at the team's direction. The team chose the product and approved every mainnet transaction, and those decisions are logged in [docs/DECISIONS.md](docs/DECISIONS.md). AI-written code is allowed by the hackathon's rule Q-005.
 - **Services:** NEAR Chain Signatures, NEAR Intents 1Click, Tidepool (community testnet of 1Click), Collector Crypt, Privy, public NEAR and Solana RPCs.
 
 ## License

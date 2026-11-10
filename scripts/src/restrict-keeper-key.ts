@@ -71,10 +71,10 @@ const refused = async (name: string, attempt: () => Promise<unknown>, reason?: R
 await refused("send the Keeper's NEAR to someone else", () => thief.transfer({ receiverId: contract, amount: 1n } as never));
 await refused("add a full-access key to the account", () => thief.addFullAccessKey(KeyPair.fromRandom("ed25519").getPublicKey()));
 await refused("transfer an NFT on the Mintent contract", () => thief.callFunction({ contractId: contract, methodName: "nft_transfer", args: { receiver_id: keeperId, token_id: "0" }, gas: 30_000_000_000_000n }), /does not allow method/i);
-await refused("withdraw a card with the owner's method", () => thief.callFunction({ contractId: contract, methodName: "sign_for_card", args: { token_id: "0", payload_hex: "00" }, gas: 100_000_000_000_000n }), /does not allow method/i);
+await refused("withdraw a card with the owner's method", () => thief.callFunction({ contractId: contract, methodName: "sign_for_card", args: { token_id: "0", payload_hex: "00" }, gas: 50_000_000_000_000n }), /does not allow method/i);
 await refused("call any other contract", () => thief.callFunction({ contractId: network === "mainnet" ? "wrap.near" : "wrap.testnet", methodName: "near_deposit", args: {}, gas: 30_000_000_000_000n }));
 // Allowed method, but nothing to sign: the contract itself refuses. This shows the key reaches the contract without a deposit.
-await refused("a Keeper call for a token it has no permission on (the contract answers, not NEAR)", () => thief.callFunction({ contractId: contract, methodName: "keeper_sign", args: { token_id: "999999", payload_hex: "00" }, gas: 100_000_000_000_000n }), /no keeper/);
+await refused("a Keeper call for a token it has no permission on (the contract answers, not NEAR)", () => thief.callFunction({ contractId: contract, methodName: "keeper_sign", args: { token_id: "999999", payload_hex: "00" }, gas: 50_000_000_000_000n }), /no keeper/);
 
 console.log(ok ? `\nthe Keeper can now run with ${file}: KEEPER_PRIVATE_KEY for the relayer` : "\nSOME CHECKS FAILED");
 process.exit(ok ? 0 : 1);

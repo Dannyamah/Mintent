@@ -29,7 +29,7 @@ console.log(`offer ${q.price}, owner's minimum ${view.keeper.min_price}`);
 async function attempt(name: string, instructions: TransactionInstruction[]) {
   const tx = await d.chain.buildNonceTx(1, instructions);
   try {
-    await keeper.callFunction({ contractId: state.contract, methodName: "keeper_sign", args: { token_id: tokenId, payload_hex: Buffer.from(tx.message.serialize()).toString("hex") }, deposit: 0n, gas: 100_000_000_000_000n });
+    await keeper.callFunction({ contractId: state.contract, methodName: "keeper_sign", args: { token_id: tokenId, payload_hex: Buffer.from(tx.message.serialize()).toString("hex") }, deposit: 0n, gas: 50_000_000_000_000n });
     console.log(`SIGNED  ${name}   <- the contract should have refused this`);
   } catch (e) {
     const err = e as { message?: string; transactionResult?: { transaction?: { hash?: string } } };
@@ -56,7 +56,7 @@ async function payoutAttempt(name: string, to: PublicKey, net: bigint, fee: bigi
     transferCheckedIx(await ata(card, mint, tokenProgram), mint, await ata(d.chain.treasury, mint, tokenProgram), card, fee, 6),
   ]);
   try {
-    await keeper.callFunction({ contractId: state.contract, methodName: "keeper_payout", args: { token_id: tokenId, payload_hex: Buffer.from(tx.message.serialize()).toString("hex") }, deposit: 0n, gas: 100_000_000_000_000n });
+    await keeper.callFunction({ contractId: state.contract, methodName: "keeper_payout", args: { token_id: tokenId, payload_hex: Buffer.from(tx.message.serialize()).toString("hex") }, deposit: 0n, gas: 50_000_000_000_000n });
     console.log(`SIGNED  ${name}   <- the contract should have refused this`);
   } catch (e) {
     const err = e as { message?: string; transactionResult?: { transaction?: { hash?: string } } };

@@ -24,6 +24,11 @@ export interface CardView {
 }
 
 const TGAS = 1_000_000_000_000n;
+/**
+ * Gas a Keeper call reserves. A call burns about 16 TGas (contract, then the MPC signer's 15 TGas), and NEAR holds the
+ * reservation up front at a worst-case price: 100 TGas needs about 0.1 NEAR, more than the Keeper's account holds.
+ */
+export const KEEPER_GAS = 50n * TGAS;
 
 /** Concurrent calls from one key can collide on the nonce. NEAR rejects those outright, so a retry is safe. */
 async function retryNonce<T>(fn: () => Promise<T>): Promise<T> {
@@ -108,11 +113,11 @@ export class MintentContract {
 
   /** The Keeper's call, signed with the Keeper's own key. The contract decides whether it may. */
   async keeperSign(keeper: Account, tokenId: string, message: Uint8Array): Promise<Uint8Array> {
-    return signatureFrom(await retryNonce(() => keeper.callFunction({ contractId: this.contractId, methodName: "keeper_sign", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 0n, gas: 100n * TGAS })));
+    return signatureFrom(await retryNonce(() => keeper.callFunction({ contractId: this.contractId, methodName: "keeper_sign", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 0n, gas: KEEPER_GAS })));
   }
 
   async keeperPayout(keeper: Account, tokenId: string, message: Uint8Array): Promise<Uint8Array> {
-    return signatureFrom(await retryNonce(() => keeper.callFunction({ contractId: this.contractId, methodName: "keeper_payout", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 0n, gas: 100n * TGAS })));
+    return signatureFrom(await retryNonce(() => keeper.callFunction({ contractId: this.contractId, methodName: "keeper_payout", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 0n, gas: KEEPER_GAS })));
   }
 
   async grantKeeper(owner: Account, tokenId: string, agent: string, minPriceUnits: bigint, expiresMs: number, opts: { payout?: string; hold?: boolean } = {}): Promise<void> {

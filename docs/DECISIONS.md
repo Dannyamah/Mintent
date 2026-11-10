@@ -11,6 +11,14 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-036 · 10 Nov · Mainnet Keeper on a function-call key; Keeper calls reserve 50 TGas
+
+- **Your approval:** the mainnet upgrade and key, given 10 Nov.
+- **Done:** mainnet contract upgraded to `DmuZKqBK…FaK` ([tx](https://nearblocks.io/txns/3Yh2DGBs41q4qWprjS4QZwCxdnY8nSRS9zMnZhmeWwit)), every setting kept. `keeper.xinju.near` got its function-call key ([tx](https://nearblocks.io/txns/9S64xTiQV5N2nerLUiuYzk52s2A3XVLe2tYJZ6b39Fy8)), and all nine checks pass. The mainnet relayer's variables now hold only that key.
+- **Gas:** Keeper calls reserved 100 TGas, which NEAR holds up front at about 0.1 NEAR, more than the Keeper's 0.0999 NEAR, so the mainnet Keeper could never have run. A call burns about 16 TGas, so it now reserves 50 TGas (`KEEPER_GAS`), about 0.05 NEAR up front. The key's 0.25 NEAR allowance is drawn only by gas actually burnt, about 0.0015 NEAR a call. Proven on testnet with token 34.
+- **Still to do:** the full-access key that was in the mainnet relayer's variables is still on `keeper.xinju.near`, and should be rotated off it, as was done on testnet.
+- **README:** names Claude Code as the AI coding assistant, in its Disclosures, as rule Q-005 asks ("List in README").
+
 ### D-035 · 10 Nov · The Keeper runs on a function-call key; a docs page; the README follows the hackathon's brief
 
 - **Why:** the hackathon's `security` track asks for agents that sign with "a function-call access key scoped to one contract, never a full-access key". Our Keeper used a full-access key, and couldn't use anything else: its methods required 1 yoctoNEAR attached, which a function-call key can't attach.
@@ -18,7 +26,7 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 - **Keys:** `scripts/src/restrict-keeper-key.ts` adds a key that can call only those two methods on the Mintent contract, with a 0.25 NEAR gas allowance, then attacks it on-chain. The hosted relayer gets only that key. The account's full-access key stays on the owner's machine. `/health` reports which kind of key the Keeper is running with.
 - **Docs page:** the app gets a "How it works" page (`#/docs`) on how it uses NEAR Intents, Chain Signatures and the Keeper. The chain counts on it come live from the 1Click token list.
 - **README:** reshaped around the hackathon's brief, which says Claude Code and Codex screen projects first: the problem, "do X, see Y" steps on the hosted site, and the NEAR features used and where.
-- **Status:** Testnet contract upgraded ([tx](https://testnet.nearblocks.io/txns/H74RQSymLzhUgYQrybkHrNZQUXvGDDgP2RA931ZsfhPZ)), keeping 31 tokens, and the testnet Keeper's key restricted ([tx](https://testnet.nearblocks.io/txns/5zX9tv7MjUacufa5ZXDUAuphHL5JtUBpkoTCG1DvKRxL)). Mainnet needs your approval for the same upgrade (code hash `DmuZKqBKerBWhw1fsRK5N9mHuBizq2oX75T7PoER5FaK`) and key.
+- **Status:** Testnet contract upgraded ([tx](https://testnet.nearblocks.io/txns/H74RQSymLzhUgYQrybkHrNZQUXvGDDgP2RA931ZsfhPZ)), keeping 31 tokens, and the testnet Keeper's key restricted ([tx](https://testnet.nearblocks.io/txns/5zX9tv7MjUacufa5ZXDUAuphHL5JtUBpkoTCG1DvKRxL)). Mainnet followed on approval (D-036).
 
 ### D-034 · 9 Nov · Keeper v2, verify:keeper, NFTs that change with the card, one-click wallet payment
 
