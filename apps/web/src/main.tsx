@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, MotionConfig, useMotionValueEvent, useScroll } from "motion/react";
-import { ChevronDown, Download, KeyRound, LayoutGrid, LogOut, Mail, Package, Wallet as WalletIcon, X } from "lucide-react";
+import { BookOpen, ChevronDown, Download, KeyRound, LayoutGrid, LogOut, Mail, Package, Wallet as WalletIcon, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, short, type Health, type Pack, type Pull } from "./api";
@@ -8,6 +8,7 @@ import { Checkout } from "./Checkout";
 import { Dashboard } from "./Dashboard";
 import { Home } from "./Home";
 import { NotFound, PackPage, SecurityPage } from "./Pages";
+import { DocsPage } from "./Docs";
 import type { default as PrivyBridgeType, PrivyState } from "./privy";
 import { Logo } from "./Logo";
 import { RevealPage } from "./Reveal";
@@ -170,8 +171,9 @@ function Nav({ wallet, privy, onSignIn, onSignOutTest, ready, route }: { wallet:
     <motion.header className={`nav ${scrolled ? "is-scrolled" : ""}`} initial={{ y: -30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.7, ease: EASE }}>
       <Logo label="Mintent home" />
       <nav aria-label="Main">
-        <a href="#/" onClick={goPacks}><Package size={16} aria-hidden="true" /><span>Packs</span></a>
-        <a href="#/dashboard" className={route === "/dashboard" ? "is-on" : ""}><LayoutGrid size={16} aria-hidden="true" /><span>Dashboard</span></a>
+        <a href="#/" onClick={goPacks} aria-label="Packs"><Package size={16} aria-hidden="true" /><span>Packs</span></a>
+        <a href="#/docs" className={route === "/docs" ? "is-on" : ""} aria-label="How it works"><BookOpen size={16} aria-hidden="true" /><span>How it works</span></a>
+        <a href="#/dashboard" className={route === "/dashboard" ? "is-on" : ""} aria-label="Dashboard"><LayoutGrid size={16} aria-hidden="true" /><span>Dashboard</span></a>
         {wallet ? <AccountMenu wallet={wallet} privy={privy} onSignOutTest={onSignOutTest} />
           : privy?.creating ? <button className="btn btn--small" disabled>Setting up…</button>
           : privy?.error ? <button className="btn btn--small btn--primary" onClick={privy.retry} title={privy.error}>Try again</button>
@@ -239,6 +241,7 @@ function App() {
     if (route === "/") return <Home pulls={pulls} packs={packs} onPick={pick} />;
     if (packMatch) return <PackPage code={packMatch[1]} onPick={pick} />;
     if (route === "/security") return <SecurityPage />;
+    if (route === "/docs") return <DocsPage health={health} />;
     if (!health) return <main className="page" />;
     if (cardMatch) return <CardPage key={cardMatch[1]} tokenId={cardMatch[1]} health={health} wallet={wallet} loginWallet={privy?.wallet ? privy.loginWallet : null} />;
     if (revealMatch) return <RevealPage key={revealMatch[1]} tokenId={revealMatch[1]} />;
@@ -274,6 +277,7 @@ function App() {
             <nav aria-label="Footer">
               <a href="#/">Packs</a>
               <a href="#/dashboard">Dashboard</a>
+              <a href="#/docs">How it works</a>
               <a href="#/security">Security</a>
             </nav>
             <div className="foot__legal">

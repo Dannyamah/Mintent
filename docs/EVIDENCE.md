@@ -169,9 +169,23 @@ In hold mode, the Keeper said "Holding your card: the $22.10 offer meets your mi
 
 On the upgraded testnet contract, sold-back token 25's metadata reads "Sold back: 2025 #222 Jamming Tower PSA 10 J", with a description saying it no longer holds its card. Token 8, still holding its card, shows the card's title and image. The collection now has the Mintent icon, which we rendered to check.
 
+## The Keeper on a function-call key, live on testnet, 10 Nov
+
+The testnet Keeper got a key that can call only `keeper_sign` and `keeper_payout` on the Mintent contract ([tx](https://testnet.nearblocks.io/txns/5zX9tv7MjUacufa5ZXDUAuphHL5JtUBpkoTCG1DvKRxL)). `scripts/src/restrict-keeper-key.ts` then attacked it, and NEAR refused every attempt before it ran:
+
+| With the Keeper's key, we tried to | NEAR's answer |
+| --- | --- |
+| Send the Keeper's NEAR to someone else | "Access key requires full access" |
+| Add a full-access key to the account | "Access key requires full access" |
+| Transfer an NFT on the Mintent contract | "Access key does not allow method nft_transfer" |
+| Withdraw a card with the owner's method | "Access key does not allow method sign_for_card" |
+| Call any other contract | "Access key receiver … does not match transaction receiver wrap.testnet" |
+
+`keeper.mjs` then ran through the real app with the relayer holding only that key: 14 checks in 6.0 minutes, on token 32 (a $12.75 offer). The five contract attacks were refused again. They were sent with the account's full-access key, a stronger attacker than the server's key. The Keeper held the card in hold mode, then sold it ([NEAR](https://testnet.nearblocks.io/txns/BYssTepE2KiuYNYPLfW6V4PCQGUxHxq5evUtCpeYfAV1)) and paid out ([NEAR](https://testnet.nearblocks.io/txns/2XiD14jRw9LmheeQXAwmmMvZUFZ6V66Cf4M22jPrCFqA)). Both were signed by the function-call key with no deposit. The owner's fresh address received exactly $12.50, the sale less the $0.25 fee. `pnpm verify:keeper mintent-con-mw7mmwr5.testnet 32` passes.
+
 ## What has not been shown
 
-- **The Keeper on mainnet.** The mainnet contract has Keeper v2 (upgraded 9 Nov), and `keeper.xinju.near` exists, but no mainnet sale or payout has run.
+- **The Keeper on mainnet.** The mainnet contract has Keeper v2 (upgraded 9 Nov), and `keeper.xinju.near` exists, but no mainnet sale or payout has run. Its function-call key and the no-deposit upgrade are waiting for approval.
 - **One-click payment with a real extension, or on mainnet.** It ran with an injected test wallet on Base Sepolia.
 
 - **No mainnet run.** The contract is deployed at `mintent.xinju.near`, but holds no tokens yet. One real, unsigned $25 mainnet purchase transaction passed `assertSafePackTx` on 9 Nov (`scripts/src/mainnet-pack-check.ts`), with nothing signed or sent. No purchase, sell-back or cash-out has run on mainnet.

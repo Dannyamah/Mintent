@@ -2,7 +2,17 @@
 // Identity: nothing here can move a card or a coin without the owner's own on-chain sign_for_card call,
 // so `actor` needs no login: the contract is the authority, and the relayer double-checks it.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { accountFromKey, CONFIGS, isStandardCardPack, loadAccount, loadConfig, NETWORKS, type RecentPull } from "@mintent/shared";
+import { KeyPair, type KeyPairString } from "near-api-js";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { accountFromKey, CONFIGS, isStandardCardPack, loadAccount, loadConfig, nearProvider, NETWORKS, type RecentPull } from "@mintent/shared";
+
+/** A private key from ~/.near-credentials/<network>/<name>.json, or null. */
+const keyFile = (network: string, name: string): string | null => {
+  const file = join(homedir(), ".near-credentials", network, `${name}.json`);
+  return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as { private_key: string }).private_key : null;
+};
 import { CardOps } from "./ops.js";
 import { OrderPipeline } from "./orders.js";
 import { reconcile } from "./reconcile.js";
@@ -54,7 +64,24 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
   const limits = testPayLimits();
   // The Keeper signs with its own account, which owners name in their permission. Without one, the feature is off.
   const keeperId = process.env.KEEPER_ACCOUNT || null;
-  const keeperAccount = keeperId ? (process.env.KEEPER_PRIVATE_KEY ? accountFromKey(config.network, keeperId, process.env.KEEPER_PRIVATE_KEY, process.env.NEAR_RPC_URL) : loadAccount(config.network, keeperId)) : null;
+  // The Keeper should run with its function-call key (scripts/src/restrict-keeper-key.ts), which can call only keeper_sign and
+  // keeper_payout on this contract. Locally that's <keeper>.function-call.json, before the account's full-access key.
+  const keeperKey = keeperId ? (process.env.KEEPER_PRIVATE_KEY || keyFile(config.network, `${keeperId}.function-call`) || keyFile(config.network, keeperId)) : null;
+  const keeperAccount = keeperId && keeperKey ? accountFromKey(config.network, keeperId, keeperKey, process.env.NEAR_RPC_URL) : null;
+  // What the Keeper's key is allowed to do, read from NEAR, for /health and the card page.
+  let keeperKeyScope: { kind: "function-call"; contract: string; methods: string[] } | { kind: "full-access" } | null = null;
+  if (keeperId && keeperKey) {
+    const publicKey = KeyPair.fromString(keeperKey as KeyPairString).getPublicKey().toString();
+    const nearRpc = nearProvider(config.network);
+    void nearRpc.query({ request_type: "view_access_key", finality: "final", account_id: keeperId, public_key: publicKey } as never).then(
+      (k) => {
+        const p = (k as unknown as { permission: "FullAccess" | { FunctionCall: { receiver_id: string; method_names: string[] } } }).permission;
+        keeperKeyScope = p === "FullAccess" ? { kind: "full-access" } : { kind: "function-call", contract: p.FunctionCall.receiver_id, methods: p.FunctionCall.method_names };
+        if (keeperKeyScope.kind === "full-access") console.warn("the Keeper is running with a full-access key: run scripts/src/restrict-keeper-key.ts");
+      },
+      (e) => console.warn(`couldn't read the Keeper's key from NEAR: ${String(e).slice(0, 160)}`),
+    );
+  }
   let gallery: { at: number; pulls: RecentPull[] } = { at: 0, pulls: [] };
 
   const packView = (m: Awaited<ReturnType<typeof d.cc.machines>>[number]) => ({ code: m.code, name: neutralPackName(m.price), price: m.price, odds: m.odds, expectedValue: m.ev, buybackPct: m.instantBuyback });
@@ -92,7 +119,7 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
   const assetView = (t: { assetId: string; symbol: string; blockchain: string; decimals: number; price?: number; contractAddress?: string }) => ({ assetId: t.assetId, symbol: t.symbol, chain: t.blockchain, decimals: t.decimals, price: t.price, contract: t.contractAddress ?? null });
 
   const routes: [string, RegExp, (m: RegExpMatchArray, b: any, req: IncomingMessage) => Promise<unknown>][] = [
-    ["GET", /^\/health$/, async () => ({ ok: true, network: config.network, contract: contractId, treasury: d.chain.treasury.toBase58(), checkout: d.checkout.name, mpcContract: config.mpcContract, serviceFeeBps: config.serviceFeeBps, defaultPack: CONFIGS[config.network].defaultPack, nearRpcs: [NETWORKS[config.network].rpc, ...NETWORKS[config.network].rpcFallbacks], testPay: Boolean(funder), keeper: keeperId, testPayAsset: funder ? TESTNET_PAY_ASSET : null })],
+    ["GET", /^\/health$/, async () => ({ ok: true, network: config.network, contract: contractId, treasury: d.chain.treasury.toBase58(), checkout: d.checkout.name, mpcContract: config.mpcContract, serviceFeeBps: config.serviceFeeBps, defaultPack: CONFIGS[config.network].defaultPack, nearRpcs: [NETWORKS[config.network].rpc, ...NETWORKS[config.network].rpcFallbacks], testPay: Boolean(funder), keeper: keeperId, keeperKey: keeperKeyScope, testPayAsset: funder ? TESTNET_PAY_ASSET : null })],
     ["GET", /^\/gallery$/, async () => {
       return gallery.pulls;
     }],

@@ -11,6 +11,15 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-035 · 10 Nov · The Keeper runs on a function-call key; a docs page; the README follows the hackathon's brief
+
+- **Why:** the hackathon's `security` track asks for agents that sign with "a function-call access key scoped to one contract, never a full-access key". Our Keeper used a full-access key, and couldn't use anything else: its methods required 1 yoctoNEAR attached, which a function-call key can't attach.
+- **Contract:** `keeper_sign` and `keeper_payout` no longer require a deposit. Nothing depended on it, because the contract pays the MPC network's 1 yoctoNEAR itself, and only the named Keeper can call them. They stay payable, so callers that still attach 1 yoctoNEAR keep working. The owner's methods still require it.
+- **Keys:** `scripts/src/restrict-keeper-key.ts` adds a key that can call only those two methods on the Mintent contract, with a 0.25 NEAR gas allowance, then attacks it on-chain. The hosted relayer gets only that key. The account's full-access key stays on the owner's machine. `/health` reports which kind of key the Keeper is running with.
+- **Docs page:** the app gets a "How it works" page (`#/docs`) on how it uses NEAR Intents, Chain Signatures and the Keeper. The chain counts on it come live from the 1Click token list.
+- **README:** reshaped around the hackathon's brief, which says Claude Code and Codex screen projects first: the problem, "do X, see Y" steps on the hosted site, and the NEAR features used and where.
+- **Status:** Testnet contract upgraded ([tx](https://testnet.nearblocks.io/txns/H74RQSymLzhUgYQrybkHrNZQUXvGDDgP2RA931ZsfhPZ)), keeping 31 tokens, and the testnet Keeper's key restricted ([tx](https://testnet.nearblocks.io/txns/5zX9tv7MjUacufa5ZXDUAuphHL5JtUBpkoTCG1DvKRxL)). Mainnet needs your approval for the same upgrade (code hash `DmuZKqBKerBWhw1fsRK5N9mHuBizq2oX75T7PoER5FaK`) and key.
+
 ### D-034 · 9 Nov · Keeper v2, verify:keeper, NFTs that change with the card, one-click wallet payment
 
 - **Your approval:** all four, and the mainnet upgrade.

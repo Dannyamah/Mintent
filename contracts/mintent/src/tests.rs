@@ -638,6 +638,34 @@ fn keeper_sells_back_at_or_above_the_floor_and_the_card_exits() {
     assert_eq!(view.keeper.unwrap().agent, keeper());
 }
 
+/// The Keeper signs with a function-call access key, which can't attach a deposit: both of its methods must work without one.
+#[test]
+fn keeper_needs_no_deposit_so_a_function_call_key_works() {
+    let mut c = kept();
+    ctx(keeper(), 0);
+    let _ = c.keeper_sign("0".into(), sellback(15_300_000));
+    let (receiver, _) = scheduled_sign_args();
+    assert_eq!(receiver, MPC);
+}
+
+#[test]
+fn keeper_payout_needs_no_deposit_either() {
+    let mut c = sold_with_payout();
+    ctx(keeper(), 0);
+    let _ = c.keeper_payout("0".into(), payout_with(15_050_000, 250_000, |_| {}));
+    let (receiver, _) = scheduled_sign_args();
+    assert_eq!(receiver, MPC);
+}
+
+/// Without a deposit, someone other than the Keeper still gets nothing.
+#[test]
+#[should_panic(expected = "only this token's keeper can sign")]
+fn without_a_deposit_only_the_keeper_can_call() {
+    let mut c = kept();
+    ctx(bob(), 0);
+    let _ = c.keeper_sign("0".into(), sellback(15_300_000));
+}
+
 #[test]
 fn keeper_can_sell_at_exactly_the_floor() {
     let mut c = kept();

@@ -20,9 +20,10 @@ const FUNDER = "mintent-dev-mw21w9ki.testnet";
 // The Keeper runs only where its account exists. Mainnet's is created separately, after approval.
 const keeperVars = (network: string, account: string): Record<string, string> => {
   try {
-    return { KEEPER_ACCOUNT: account, KEEPER_PRIVATE_KEY: key(network, account) };
+    // Only the function-call key from restrict-keeper-key.ts goes to the server; the full-access key stays on this machine.
+    return { KEEPER_ACCOUNT: account, KEEPER_PRIVATE_KEY: key(network, `${account}.function-call`) };
   } catch {
-    console.log(`no key for ${account}: the ${network} relayer runs without a Keeper`);
+    console.log(`no function-call key for ${account} (run restrict-keeper-key.ts): the ${network} relayer runs without a Keeper`);
     return {};
   }
 };

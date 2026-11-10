@@ -108,11 +108,11 @@ export class MintentContract {
 
   /** The Keeper's call, signed with the Keeper's own key. The contract decides whether it may. */
   async keeperSign(keeper: Account, tokenId: string, message: Uint8Array): Promise<Uint8Array> {
-    return signatureFrom(await retryNonce(() => keeper.callFunction({ contractId: this.contractId, methodName: "keeper_sign", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 1n, gas: 100n * TGAS })));
+    return signatureFrom(await retryNonce(() => keeper.callFunction({ contractId: this.contractId, methodName: "keeper_sign", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 0n, gas: 100n * TGAS })));
   }
 
   async keeperPayout(keeper: Account, tokenId: string, message: Uint8Array): Promise<Uint8Array> {
-    return signatureFrom(await retryNonce(() => keeper.callFunction({ contractId: this.contractId, methodName: "keeper_payout", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 1n, gas: 100n * TGAS })));
+    return signatureFrom(await retryNonce(() => keeper.callFunction({ contractId: this.contractId, methodName: "keeper_payout", args: { token_id: tokenId, payload_hex: Buffer.from(message).toString("hex") }, deposit: 0n, gas: 100n * TGAS })));
   }
 
   async grantKeeper(owner: Account, tokenId: string, agent: string, minPriceUnits: bigint, expiresMs: number, opts: { payout?: string; hold?: boolean } = {}): Promise<void> {

@@ -9,6 +9,8 @@
 
 Real graded trading cards, paid for from any chain, owned as NEAR NFTs, and cashed out to any chain.
 
+**The problem.** Tokenized collectibles are stuck on one chain: to buy a vaulted card you need that chain's wallet and coin, and the money you get back is stuck there too. Selling the token also doesn't reliably hand over the asset. A seller can sign a transfer of the underlying card first and sell the token afterwards. And if you let an agent manage the card, it usually gets the keys to everything.
+
 Each pack you buy becomes a NEP-171 token on NEAR. The token controls its own Solana address through NEAR Chain Signatures, and that address holds the real card, which is backed by a physical graded slab in Collector Crypt's vault. **Transfer the NFT on NEAR and control of the card moves with it, with no Solana transaction.** Whoever holds the NFT can sell the card back, cash out the money as any coin on any chain, or withdraw the card, and the previous owner can't. Sign in with email or a wallet you already have.
 
 **The Keeper** answers a question every agent wallet faces: how do you let an agent act with your money without giving it the keys to everything? Collector Crypt's sell-back offers have a deadline. An owner can let an agent sell their card back while the offer meets their minimum, either right away or only in the offer's last 24 hours, and then send the money to the owner's own address. The **contract** limits the agent to exactly that:
@@ -16,17 +18,46 @@ Each pack you buy becomes a NEP-171 token on NEAR. The token controls its own So
 - only at or above the owner's minimum, until a set time
 - payouts only to the address the owner chose, less Mintent's exact fee
 
-It can't withdraw the card, send money anywhere else or transfer the NFT, even with a stolen key. We had it try five ways on testnet, and the contract refused all five on-chain. The card page shows what the Keeper is thinking. `pnpm verify:keeper` re-checks everything it did, from public data.
+It can't withdraw the card, send money anywhere else or transfer the NFT, even with a stolen key. We had it try five ways on testnet, and the contract refused all five on-chain. Its key is a NEAR function-call key that can call only those two Keeper methods, so a thief couldn't use it for anything else either. The card page shows what the Keeper is thinking. `pnpm verify:keeper` re-checks everything it did, from public data.
 
 Built at NEAR HACKATHON for these tracks:
-- **`nfts`:** each NFT is an account that holds a real card and money, and carries permissions.
-- **`security`:** the Keeper is a policy-limited agent wallet, enforced on-chain.
-- **`agents`:** the Keeper is an agent that earns for its owner.
-- **`open`:** the whole product is chain abstraction: pay from any chain, own on NEAR, cash out anywhere.
+- **`nfts`:** each NFT is an account that holds a real card and money, and carries permissions. Its metadata changes when the card leaves (dynamic NFT, NEP-171).
+- **`security`:** the Keeper is a policy-limited agent wallet. The contract enforces its policy, and NEAR enforces its function-call access key.
+- **`agents`:** the Keeper is an agent that sells and pays out for its owner, and shows its reasoning.
+- **`open`:** the whole product is chain abstraction: pay from any chain through NEAR Intents, own on NEAR, cash out anywhere.
 
-> **Status, 9 Nov 2026: everything below has run on public test networks with no real money. The contract is deployed on mainnet, but no purchase has run there yet.** See [Limits](#limits).
+### NEAR features used
 
-**Try it:** [testnet, free](https://web-testnet-production-2eb9.up.railway.app) · [mainnet, real money](https://web-mainnet-production-b5e0.up.railway.app)
+| Feature | What it does here | Where |
+| --- | --- | --- |
+| NEAR Intents, 1Click API | Pay in: an exact-output quote turns any listed coin into USDC on Solana. Cash out: the NFT's own address swaps its USDC to any coin on any chain. | `packages/checkout`, `services/relayer/src/orders.ts`, `services/relayer/src/ops.ts` |
+| Chain Signatures | Each NFT controls a Solana address derived from the contract and `card/<token id>`. The MPC network signs only what the contract approves. | `contracts/mintent/src/lib.rs` (`sign_for_card`, `keeper_sign`, `keeper_payout`) |
+| NEP-171 NFT, dynamic metadata | One token per pull. Its title becomes "Sold back: …" or "Withdrawn: …" once the card leaves. | `contracts/mintent` |
+| Function-call access keys | The Keeper's key can call only `keeper_sign` and `keeper_payout` on the contract. | `scripts/src/restrict-keeper-key.ts` |
+| NEAR accounts for email and wallet users | Privy creates a NEAR account for each user, with an exportable key. No NEAR wallet or seed phrase is needed. | `apps/web/src/privy.tsx` |
+
+The app explains all of this for users on its [How it works](https://web-testnet-production-2eb9.up.railway.app/#/docs) page.
+
+> **Status, 10 Nov 2026: everything below has run on public test networks with no real money. The contract is deployed on mainnet, but no purchase has run there yet.** NEAR Intents has no testnet, so the test site uses Tidepool, a community test version of the 1Click API. See [Limits](#limits).
+
+**Hosted:** [testnet, free](https://web-testnet-production-2eb9.up.railway.app) · [mainnet, real money](https://web-mainnet-production-b5e0.up.railway.app)
+
+## Try it in a browser, in 5 minutes, with nothing to install
+
+On the [testnet site](https://web-testnet-production-2eb9.up.railway.app):
+
+| Do | You should see |
+| --- | --- |
+| Choose **Sign in**, then **Create my test account** | Your new NEAR account in the top right. No email or wallet needed. |
+| Scroll to the packs, choose **Open a $25 pack**, tick the 18+ box, then **Get payment details** | A deposit address and the exact amount, from a 1Click quote |
+| Choose **Pay with test USDC** | The steps tick through: payment proven, NFT minted, pack bought, the draw. Takes 2–4 minutes. |
+| Choose **Tear open your pack** | A real graded card from Collector Crypt's devnet, owned by your NFT |
+| Choose **View your card** | "Check it yourself": the NFT's owner on NEAR, its Solana address and who holds the card, each linked to an explorer |
+| Choose **Sell back for USDC**, then **Confirm** | The card goes back to Collector Crypt, and the USDC lands in the NFT's own address |
+| On a card you haven't sold, set a minimum below the offer and choose **Turn on the Keeper** | Within a minute, the Keeper's reasoning, then the sale |
+| Open **How it works** | How the app uses NEAR Intents, Chain Signatures and the Keeper |
+
+Test accounts get 3 free packs a day. Signing in with email, or with an Ethereum or Solana wallet, works too.
 
 ## Check it in 2 minutes, with no accounts or keys
 
@@ -51,7 +82,7 @@ pnpm verify:keeper mintent-con-mw7mmwr5.testnet 25 # sold and paid out by the Ke
 pnpm --filter @mintent/checkout test   # 7 pass: checkout
 pnpm --filter @mintent/relayer test    # 74 pass: order pipeline, sell-back, cash-out, recovery, Keeper
 pnpm test:web                          # 17 pass: the signing check refuses tampered messages and wrong fees; Privy signer; wallet payment encoding
-pnpm test:contracts                    # 78 unit tests + 1 sandbox run, including the attack and Keeper tests; needs Rust and cargo-near
+pnpm test:contracts                    # 81 unit tests + 1 sandbox run, including the attack and Keeper tests; needs Rust and cargo-near
 ```
 
 Every step of the real runs, with transaction links, is in [docs/EVIDENCE.md](docs/EVIDENCE.md).
@@ -68,6 +99,7 @@ Every step of the real runs, with transaction links, is in [docs/EVIDENCE.md](do
 | Cash out to any chain | Sell-back money arrived as USDC on [Base Sepolia](https://sepolia.basescan.org/address/0x55528b52ab7000887f0bf1543c5b878c2cae66ca) and on NEAR ([evidence](docs/EVIDENCE.md)) |
 | The app won't sign what you didn't ask for | `apps/web/e2e/tamper.mjs` plays a compromised relayer against the real app: refused, nothing signed, card unmoved. `apps/web/e2e/verify.test.mts` covers the other attacks |
 | An agent can act for you without being able to take anything | The Keeper's real key, refused five times on-chain: [withdraw the card](https://testnet.nearblocks.io/txns/DRXHsP5JVZ1fgJDunY4km5tH1je45xH91bzBGkhK69cb), [sell below the minimum](https://testnet.nearblocks.io/txns/b3snbsDCNESNHKD5RXWUKxJVLhZMut7fCLdjYq3nvAt), [take the sale](https://testnet.nearblocks.io/txns/FzJsheVo8Qus37TUMTu8vSDSdT6dHUdYrkWD9LvUfxgS), [pay itself](https://testnet.nearblocks.io/txns/6ctHushdEPgkxjdShxXgAa3A8prFuSTT6pdCYu2uowbP), [take a bigger fee](https://testnet.nearblocks.io/txns/EDx5ZEWGoAEK9zcCWTxmGH4cyC31d6Q45KyBGyGmxWR9). Then it sold at the owner's minimum and paid the owner exactly the sale less the fee. `pnpm verify:keeper mintent-con-mw7mmwr5.testnet 25` |
+| The agent's key can't do anything else | Its key can call only `keeper_sign` and `keeper_payout` on the contract. With it, NEAR refused sending NEAR, adding a key, `nft_transfer`, `sign_for_card` and other contracts ([evidence](docs/EVIDENCE.md)). The live sale [BYssTepE…](https://testnet.nearblocks.io/txns/BYssTepE2KiuYNYPLfW6V4PCQGUxHxq5evUtCpeYfAV1) was signed with that key. `pnpm verify:keeper mintent-con-mw7mmwr5.testnet 32` |
 | Pay from your wallet in one click | A wallet signed in through Privy [paid from Base Sepolia](https://sepolia.basescan.org/tx/0xcf36efe9d263996d001ad52feceefa96e57fd8f4d67f5f66d5c5c78b84ac8385) with one button and received token 27 |
 | The NFT tells wallets the truth | `nft_token` for token 25 reads "Sold back: …" once its card has left |
 | A paid order recovers from outages, and is never paid for twice | Tests in `services/relayer/test/relayer.test.ts`; recovery also [ran live](docs/EVIDENCE.md) |
@@ -129,7 +161,7 @@ node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 | `packages/shared` | Collector Crypt client, Solana derivation and transaction helpers |
 | `services/relayer` | Order pipeline, sell-back and withdrawal, cash-out, the Keeper, reconciliation, HTTP API |
 | `apps/web` | React and Vite web app |
-| `scripts` | `demo:testnet`, `verify:pull` and earlier feasibility spikes |
+| `scripts` | `demo:testnet`, `verify:pull`, `verify:keeper`, account and key setup, and earlier feasibility spikes |
 | `deploy` | Dockerfiles for hosting on Railway ([guide](docs/DEPLOY.md)) |
 | `docs` | [Evidence](docs/EVIDENCE.md), [threat model](docs/THREAT-MODEL.md), [decisions](docs/DECISIONS.md), [plan](docs/PLAN.md) |
 
@@ -140,11 +172,13 @@ node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 - **Any-chain money hasn't moved for real yet.** On test networks, payment ran from Base and NEAR, and cash-outs to NEAR and Base. Other chains have live mainnet quotes only ([evidence](docs/EVIDENCE.md)).
 - **Payment proof on mainnet is unconfirmed.** Mainnet swaps are confidential. If 1Click doesn't report the payout's hash, the relayer finds the payment on the treasury's account instead, which has only run against test networks.
 - **The mainnet cash-out is unit-tested only.** Testnet sell-back money is a token Tidepool doesn't take, so there the treasury funds the swap. On mainnet the NFT's address pays directly.
-- **Wallet sign-in** used an injected test wallet, not a real extension. Solana wallets aren't tested. NEAR's own wallets (HOT, Meteor) aren't supported.
+- **Wallet sign-in** was tested with injected test wallets, for Ethereum and for Solana, through Privy's real service, not with real extensions. NEAR's own wallets (HOT, Meteor) aren't supported.
+- **Some wallets warn about the hosted sites.** Jupiter called the `*.up.railway.app` address "likely malicious", probably because scams use the same shared host. A custom domain is planned.
 - **Sell-back timing on mainnet is unconfirmed.** Collector Crypt's docs say 72 hours, devnet offered 30 days, and 8 of 8 recent mainnet pulls were not available when checked. Those cards may already have been sold.
 - **Redeeming a physical card is untested.** The path is to withdraw the card to your own Solana wallet, then redeem on Collector Crypt's site like any holder.
 - **Trust assumptions.** The relayer controls the treasury's signatures and can write wrong records to the contract. It can't act on a card by itself, and the app checks each message it prepares before signing. `verify:pull` reads the chains directly, so false records can be caught. The check's own limits, including BTC cash-outs and a replaced website, are in the threat model.
 - **The Keeper's decision is a rule, not a model.** It sells while the offer meets your minimum, now or in the offer's last day. The safety comes from the contract, not from the agent being clever. It has run on testnet only.
+- **On mainnet the Keeper still has its full-access key** until the contract upgrade that lets it use a function-call key is approved. On testnet it runs on the function-call key.
 - **The Keeper pays out to Solana only.** Cash-outs to other chains go through a fresh quote each time, so they can't be pinned in advance in a permission.
 - **One-click payment** has run with an injected test wallet on Base Sepolia, not a real extension or mainnet.
 - **After 24 hours of failed retries, a stuck paid order needs a person.** There's no automated refund.

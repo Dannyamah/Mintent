@@ -418,9 +418,12 @@ impl Contract {
 
     /// The keeper asks for a signature on a sell-back. The base signing policy applies, and the message must be a Collector
     /// Crypt sell-back of this card into its own address at or above the owner's floor (`solana::check_keeper_sellback`).
+    ///
+    /// No deposit is required, unlike the owner's methods: the Keeper is meant to call with a function-call access key scoped
+    /// to this contract and to `keeper_sign` and `keeper_payout`, and such keys can't attach one. The contract pays the
+    /// signer's 1 yoctoNEAR itself. Payable only so callers that still attach 1 yoctoNEAR keep working.
     #[payable]
     pub fn keeper_sign(&mut self, token_id: TokenId, payload_hex: String) -> Promise {
-        require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
         let grant = Self::keepers().get(&token_id).unwrap_or_else(|| env::panic_str("this token has no keeper"));
         require!(env::predecessor_account_id() == grant.agent, "only this token's keeper can sign");
         require!(env::block_timestamp_ms() < grant.expires_ms.0, "the keeper's permission has ended");
@@ -440,9 +443,9 @@ impl Contract {
 
     /// After a sale, the Keeper sends the NFT's USDC to the owner's chosen address, less Mintent's exit fee to the treasury, and
     /// nothing else (`solana::check_keeper_payout`). Only if the owner named a payout address.
+    /// No deposit is required, for the same reason as `keeper_sign`.
     #[payable]
     pub fn keeper_payout(&mut self, token_id: TokenId, payload_hex: String) -> Promise {
-        require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
         let grant = Self::keepers().get(&token_id).unwrap_or_else(|| env::panic_str("this token has no keeper"));
         require!(env::predecessor_account_id() == grant.agent, "only this token's keeper can sign");
         require!(env::block_timestamp_ms() < grant.expires_ms.0, "the keeper's permission has ended");
