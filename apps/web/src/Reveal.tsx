@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { api, insured, rarityOf, usd, units, type Card } from "./api";
 import { PackArt } from "./Home";
 import { CountUp, EASE, RarityBadge, Tilt } from "./ui";
+import { cardPath, markOpened, openPath } from "./links";
+import { canonicalize } from "./router";
 
 type Stage = "sealed" | "tearing" | "revealed";
 
@@ -22,32 +24,56 @@ function Burst({ rarity }: { rarity: string }) {
   );
 }
 
-export function RevealPage({ tokenId }: { tokenId: string }) {
+/** The opening, at /open/<code>. Reached from checkout, or later from the dashboard if the tab was closed mid-order. */
+export function RevealPage({ cardKey, contractId }: { cardKey: string; contractId: string }) {
   const [card, setCard] = useState<Card | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [imgReady, setImgReady] = useState(false);
   const [stage, setStage] = useState<Stage>("sealed");
   const reduced = useReducedMotion();
+  // The pack may still be on its way: the order finishes on the server whether or not this page is open.
+  const arrived = Boolean(card?.record.card_mint);
 
   useEffect(() => {
-    api.card(tokenId).then((c) => {
-      setCard(c);
-      if (c.image) {
-        const img = new Image();
-        img.onload = () => setImgReady(true);
-        img.onerror = () => setImgReady(true);
-        img.src = c.image;
-      } else {
-        setImgReady(true);
-      }
-    }, (e) => setError(e.message));
-  }, [tokenId]);
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const load = () =>
+      api.card(cardKey).then((c) => {
+        if (stop) return;
+        setCard(c);
+        setError(null);
+        // Keep the address free of the card's name, whichever link brought you here.
+        canonicalize(openPath(c.links.code));
+        if (!c.record.card_mint) {
+          timer = setTimeout(load, 4000);
+          return;
+        }
+        if (c.image) {
+          const img = new Image();
+          img.onload = () => setImgReady(true);
+          img.onerror = () => setImgReady(true);
+          img.src = c.image;
+        } else {
+          setImgReady(true);
+        }
+      }, (e) => {
+        if (stop) return;
+        setError(e.message);
+        timer = setTimeout(load, 6000);
+      });
+    void load();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [cardKey]);
 
   const rarity = rarityOf(card?.record.rarity);
-  const canOpen = Boolean(card && imgReady);
+  const canOpen = Boolean(card && arrived && imgReady);
 
   const open = () => {
     if (!canOpen || stage !== "sealed") return;
+    markOpened(contractId, card!.token_id);
     setStage("tearing");
     setTimeout(() => setStage("revealed"), reduced ? 50 : 720);
   };
@@ -93,8 +119,8 @@ export function RevealPage({ tokenId }: { tokenId: string }) {
       <div className="reveal__copy">
         {stage === "sealed" && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4, duration: 0.6 }}>
-            <h1 className="display">{canOpen ? "Your pack is ready" : "Getting your pack ready…"}</h1>
-            <p className="lede">{canOpen ? "Tap to tear it open." : "One moment."}</p>
+            <h1 className="display">{canOpen ? "Your pack is ready" : card && !arrived ? "Your pack is on its way" : "Getting your pack ready…"}</h1>
+            <p className="lede">{canOpen ? "Tap to tear it open." : card && !arrived ? "We're buying it for your NFT and drawing your card. This usually takes a minute or two, and you can leave and come back." : "One moment."}</p>
           </motion.div>
         )}
         {stage === "revealed" && card && (
@@ -104,8 +130,8 @@ export function RevealPage({ tokenId }: { tokenId: string }) {
             <p className="reveal__value"><CountUp value={insured(card)} format={(n) => usd(Math.round(n * 100) / 100)} /> <small>insured value</small></p>
             {card.offer && <p className="lede"><Sparkles size={15} aria-hidden="true" /> Collector Crypt will buy it back for {usd(units(card.offer.amountUnits))}.</p>}
             <div className="reveal__actions">
-              <a className="btn btn--primary" href={`#/card/${tokenId}`}>View your card <ArrowRight size={16} aria-hidden="true" /></a>
-              <a className="btn btn--ghost" href="#/dashboard">Your dashboard</a>
+              <a className="btn btn--primary" href={cardPath(card.links)}>View your card <ArrowRight size={16} aria-hidden="true" /></a>
+              <a className="btn btn--ghost" href="/dashboard">Your dashboard</a>
             </div>
           </motion.div>
         )}

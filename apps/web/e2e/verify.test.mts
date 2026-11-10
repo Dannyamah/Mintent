@@ -176,3 +176,21 @@ test("one-click payment encodes a standard ERC-20 transfer, and refuses bad inpu
   assert.throws(() => erc20Transfer("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", 1n), /not an Ethereum address/);
   assert.throws(() => erc20Transfer("0x5674A57440f8a32588e621dB7e39a387D98DDE3D", 0n), /positive/);
 });
+
+test("the app computes the same opening code as the relayer, so /open/<code> links resolve", async () => {
+  const { cardCode } = await import("../src/links.ts");
+  const shared = await import("@mintent/shared");
+  for (const [contract, id] of [["mintent-con-mw7mmwr5.testnet", "0"], ["mintent-con-mw7mmwr5.testnet", "35"], ["mintent.xinju.near", "1"]]) {
+    assert.equal(await cardCode(contract, id), shared.cardCode(contract, id));
+  }
+});
+
+test("old hash links become readable paths", async () => {
+  const { legacyPath } = await import("../src/router.tsx");
+  assert.equal(legacyPath("#/card/35"), "/cards/35");
+  assert.equal(legacyPath("#/reveal/35"), "/open/35");
+  assert.equal(legacyPath("#/docs"), "/how-it-works");
+  assert.equal(legacyPath("#/dashboard"), "/dashboard");
+  assert.equal(legacyPath("#packs"), null);
+  assert.equal(legacyPath(""), null);
+});

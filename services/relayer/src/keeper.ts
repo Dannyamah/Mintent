@@ -8,6 +8,13 @@ import { afterExitFee, type MintentContract } from "@mintent/shared";
 import type { CardOps } from "./ops.js";
 import type { Deps } from "./deps.js";
 
+/** "Wed 9 Dec, 15:33 UTC": readable in the Keeper's notes, and the same for every viewer. */
+const when = (ms: number) => {
+  const d = new Date(ms);
+  const day = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).replace(",", "");
+  return `${day}, ${d.toISOString().slice(11, 16)} UTC`;
+};
+
 const RETRY_AFTER_FAILURE_MS = 10 * 60_000;
 /** In hold mode, the Keeper sells in the offer's last day. */
 export const HOLD_WINDOW_MS = 24 * 60 * 60_000;
@@ -33,7 +40,7 @@ export function keeperShouldSell(grant: Grant | null | undefined, offer: { avail
   if (BigInt(Math.floor(offer.amountUnits)) < BigInt(grant.min_price)) return { sell: false, why: `Waiting: the offer is ${dollars(offer.amountUnits)}, below your ${dollars(grant.min_price)} minimum.` };
   if (grant.hold && offer.expiresAt) {
     const left = new Date(offer.expiresAt).getTime() - now;
-    if (left > HOLD_WINDOW_MS) return { sell: false, why: `Holding your card: the ${dollars(offer.amountUnits)} offer meets your minimum, and I'll sell in its last 24 hours, from ${new Date(new Date(offer.expiresAt).getTime() - HOLD_WINDOW_MS).toUTCString()}.` };
+    if (left > HOLD_WINDOW_MS) return { sell: false, why: `Holding your card: the ${dollars(offer.amountUnits)} offer meets your minimum, and I'll sell in its last 24 hours, from ${when(new Date(offer.expiresAt).getTime() - HOLD_WINDOW_MS)}.` };
   }
   return { sell: true, why: `Selling: the offer is ${dollars(offer.amountUnits)}, at or above your ${dollars(grant.min_price)} minimum.` };
 }

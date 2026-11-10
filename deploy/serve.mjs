@@ -1,4 +1,5 @@
-// A small static server for the built site, with no dependencies. The app uses hash routes, so every page is index.html.
+// A small static server for the built site, with no dependencies. The app routes by path (/dashboard, /cards/<name>), so any
+// address that isn't a file gets index.html. A missing build file under /assets/ is a 404, not the page.
 import { createReadStream, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
@@ -13,9 +14,14 @@ createServer((req, res) => {
   const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
   let file = join(root, rel === "/" ? "index.html" : rel);
   if (!file.startsWith(root)) return void res.writeHead(403).end();
+  let exists = false;
   try {
-    if (!statSync(file).isFile()) file = join(root, "index.html");
+    exists = statSync(file).isFile();
   } catch {
+    exists = false;
+  }
+  if (!exists) {
+    if (rel.startsWith("/assets/")) return void res.writeHead(404, { "Content-Type": "text/plain" }).end("not found");
     file = join(root, "index.html");
   }
   const hashed = file.includes(`${join(root, "assets")}`);

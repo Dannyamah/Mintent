@@ -73,7 +73,7 @@ try {
 
   // Stop straight away if the app reports a failed order, rather than waiting out the whole timeout.
   await Promise.race([
-    ana.waitForURL(/#\/reveal\//, { timeout: 8 * 60000 }),
+    ana.waitForURL(/\/open\//, { timeout: 8 * 60000 }),
     ana.locator(".sheet .error").waitFor({ timeout: 8 * 60000 }).then(async () => { throw new Error(`order failed: ${await ana.locator(".sheet .error").innerText()}`); }),
   ]);
   const tokenId = ana.url().split("/").pop();

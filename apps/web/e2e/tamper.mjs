@@ -40,7 +40,7 @@ try {
   await page.locator(".check input").check();
   await page.getByRole("button", { name: "Get payment details" }).click();
   await page.getByRole("button", { name: "Pay with test USDC" }).click({ timeout: 60000 });
-  await page.waitForURL(/#\/reveal\//, { timeout: 8 * 60000 });
+  await page.waitForURL(/\/open\//, { timeout: 8 * 60000 });
   const tokenId = page.url().split("/").pop();
   console.log(`token ${tokenId}`);
 

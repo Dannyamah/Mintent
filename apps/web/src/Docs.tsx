@@ -62,14 +62,10 @@ export function DocsPage({ health }: { health: Health | null }) {
   const nearblocks = testnet ? "https://testnet.nearblocks.io/address/" : "https://nearblocks.io/address/";
   const payChains = chains ? `${chains.pay} chains` : "dozens of chains";
   const outChains = chains ? `${chains.out} chains` : "dozens of chains";
-  const go = (id: string) => (e: React.MouseEvent) => {
-    e.preventDefault();
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
 
   return (
     <main className="page docs">
-      <a className="back" href="#/"><ArrowLeft size={15} aria-hidden="true" /> Home</a>
+      <a className="back" href="/"><ArrowLeft size={15} aria-hidden="true" /> Home</a>
       <Reveal>
         <p className="kicker">How it works</p>
         <h1 className="display">Real cards, any chain, one NFT on NEAR</h1>
@@ -84,7 +80,7 @@ export function DocsPage({ health }: { health: Health | null }) {
           <p className="eyebrow">On this page</p>
           <ul>
             {SECTIONS.map(([id, label]) => (
-              <li key={id}><a href={`#/docs`} onClick={go(id)}>{label}</a></li>
+              <li key={id}><a href={`/how-it-works#${id}`}>{label}</a></li>
             ))}
           </ul>
         </nav>
@@ -165,7 +161,7 @@ export function DocsPage({ health }: { health: Health | null }) {
             </p>
             <ul className="docs__list">
               <li><strong>Transfer the NFT, and the card moves with it,</strong> with no Solana transaction. The old owner can no longer sign for the address.</li>
-              <li><strong>A seller can't keep a back door.</strong> The contract reads every Solana message before it signs. Anything that would outlive a sale, like a hidden approval, is refused, and the NFT can't change hands while a signature is still usable. <a href="#/security">How we stop a seller keeping the card</a>.</li>
+              <li><strong>A seller can't keep a back door.</strong> The contract reads every Solana message before it signs. Anything that would outlive a sale, like a hidden approval, is refused, and the NFT can't change hands while a signature is still usable. <a href="/security">How we stop a seller keeping the card</a>.</li>
               <li><strong>The NFT tells wallets the truth.</strong> Once its card has left, its title changes to "Sold back" or "Withdrawn".</li>
             </ul>
           </Section>
@@ -212,7 +208,7 @@ export function DocsPage({ health }: { health: Health | null }) {
               <div><dt>Can Mintent take my card?</dt><dd>No. Only the NFT's current owner can get a signature for the card's address, and the contract checks every message first. Mintent's relayer can't act on a card by itself.</dd></div>
               <div><dt>Is it worth what I pay?</dt><dd>Usually not. Most pulls are common and worth less than the pack. Odds and the sell-back offer are shown before you pay. 18+ only.</dd></div>
             </dl>
-            <p className="hint"><RefreshCcw size={14} aria-hidden="true" /> Independent project, not affiliated with Collector Crypt. <ShieldCheck size={14} aria-hidden="true" /> <a href="#/security">Security</a></p>
+            <p className="hint"><RefreshCcw size={14} aria-hidden="true" /> Independent project, not affiliated with Collector Crypt. <ShieldCheck size={14} aria-hidden="true" /> <a href="/security">Security</a></p>
           </Section>
         </div>
       </div>

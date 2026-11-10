@@ -38,7 +38,7 @@ async function nearUsdc(account) {
 
 async function waitForCard() {
   await Promise.race([
-    page.waitForURL(/#\/reveal\//, { timeout: 8 * 60000 }),
+    page.waitForURL(/\/open\//, { timeout: 8 * 60000 }),
     page.locator(".sheet .error").waitFor({ timeout: 8 * 60000 }).then(async () => { throw new Error(`order failed: ${await page.locator(".sheet .error").first().innerText()}`); }),
   ]);
   return page.url().split("/").pop();

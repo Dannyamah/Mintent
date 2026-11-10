@@ -30,14 +30,14 @@ try {
   await page.getByRole("button", { name: "Create my test account" }).click();
   const button = page.getByRole("button", { name: "Try again now" });
   await button.waitFor({ timeout: 20000 });
-  const text = await page.locator(".active li").innerText();
+  const text = await page.locator(".active__item").first().innerText();
   if (!/Delayed/.test(text) || /treasury/.test(text)) throw new Error(`wrong message: ${text}`);
   ok("the dashboard says the order is delayed, without internal details");
   await page.waitForTimeout(800);
   await page.screenshot({ path: `${out}/stuck-dashboard.png` });
 
   await button.click();
-  await page.waitForFunction(() => /Buying your pack/.test(document.querySelector(".active li")?.textContent ?? ""), null, { timeout: 8000 });
+  await page.waitForFunction(() => /Buying your pack/.test(document.querySelector(".active__item")?.textContent ?? ""), null, { timeout: 8000 });
   if (retries !== 1) throw new Error(`expected one retry, saw ${retries}`);
   if (await button.count()) throw new Error("the retry button stayed after the order resumed");
   ok("pressing it asks for one retry, and the order shows as moving again");

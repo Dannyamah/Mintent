@@ -66,6 +66,12 @@ export class MintentContract {
     return this.view("get_card", { token_id: tokenId });
   }
 
+  /** A page of every token, in mint order, with its on-chain title. */
+  async tokenPage(fromIndex: number, limit: number): Promise<{ tokenId: string; title: string | null }[]> {
+    const tokens = await this.view<{ token_id: string; metadata?: { title?: string | null } | null }[]>("nft_tokens", { from_index: String(fromIndex), limit });
+    return tokens.map((t) => ({ tokenId: t.token_id, title: t.metadata?.title ?? null }));
+  }
+
   /** Token ids an account owns, newest first. */
   async tokensOf(accountId: string): Promise<string[]> {
     const tokens = await this.view<{ token_id: string }[]>("nft_tokens_for_owner", { account_id: accountId, limit: 100 });

@@ -6,7 +6,7 @@ import { KeyPair, type KeyPairString } from "near-api-js";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { accountFromKey, CONFIGS, isStandardCardPack, loadAccount, loadConfig, nearProvider, NETWORKS, type RecentPull } from "@mintent/shared";
+import { accountFromKey, cardCode, CONFIGS, isStandardCardPack, loadAccount, loadConfig, nearProvider, NETWORKS, packSlug, type RecentPull } from "@mintent/shared";
 
 /** A private key from ~/.near-credentials/<network>/<name>.json, or null. */
 const keyFile = (network: string, name: string): string | null => {
@@ -18,6 +18,7 @@ import { OrderPipeline } from "./orders.js";
 import { reconcile } from "./reconcile.js";
 import { createRuntime } from "./runtime.js";
 import { createKeeper } from "./keeper.js";
+import { createCardIndex } from "./card-index.js";
 import { createTestnetUpkeep, testPayLimits, testPayRefusal } from "./testnet-upkeep.js";
 
 /** Neutral names in our own UI: no franchise branding (see docs/PLAN.md). */
@@ -84,10 +85,13 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
   }
   let gallery: { at: number; pulls: RecentPull[] } = { at: 0, pulls: [] };
 
-  const packView = (m: Awaited<ReturnType<typeof d.cc.machines>>[number]) => ({ code: m.code, name: neutralPackName(m.price), price: m.price, odds: m.odds, expectedValue: m.ev, buybackPct: m.instantBuyback });
+  const cards = createCardIndex(d.contract, contractId);
+  const packView = (m: Awaited<ReturnType<typeof d.cc.machines>>[number]) => ({ code: m.code, slug: packSlug(neutralPackName(m.price)), name: neutralPackName(m.price), price: m.price, odds: m.odds, expectedValue: m.ev, buybackPct: m.instantBuyback });
 
   // Everything the app shows about a token, read live from NEAR, Solana and Collector Crypt.
-  const cardView = async (tokenId: string) => {
+  const cardView = async (key: string) => {
+    const tokenId = await cards.resolve(key);
+    if (!tokenId) throw Object.assign(new Error("unknown card"), { status: 404 });
     const card = await d.contract.getCard(tokenId);
     if (!card) throw Object.assign(new Error("unknown token"), { status: 404 });
     const address = await d.chain.cardAddress(tokenId);
@@ -113,6 +117,7 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
       offer: offer?.available ? { amountUnits: offer.amountUnits, expiresAt: offer.expiresAt } : null,
       mintedAt: order?.created_at ?? null,
       keeperStatus: d.db.keeperStatus(tokenId) ?? null,
+      links: await cards.links(tokenId, Boolean(mint)),
     };
   };
 
@@ -149,10 +154,10 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
       const orders = d.db.ordersByBuyer(account);
       const ops = d.db.opsByActor(account);
       const activity = [
-        ...orders.map((o) => ({ kind: "order", at: o.created_at, state: o.state, tokenId: o.token_id, name: o.card_name, rarity: o.rarity, packPriceUnits: o.price_units, tx: o.buy_sig, orderId: o.id })),
-        ...ops.filter((o) => o.state === "sent").map((o) => ({ kind: o.kind, at: o.created_at, byKeeper: Boolean((JSON.parse(o.detail) as { keeper?: string }).keeper), state: o.state, tokenId: o.token_id, detail: JSON.parse(o.detail), tx: o.tx_sig, swapStatus: o.swap_status, swapAmountOut: o.swap_amount_out })),
+        ...orders.map((o) => ({ kind: "order", at: o.created_at, state: o.state, tokenId: o.token_id, code: o.token_id ? cardCode(contractId, o.token_id) : null, name: o.card_name, rarity: o.rarity, packPriceUnits: o.price_units, tx: o.buy_sig, orderId: o.id })),
+        ...ops.filter((o) => o.state === "sent").map((o) => ({ kind: o.kind, at: o.created_at, byKeeper: Boolean((JSON.parse(o.detail) as { keeper?: string }).keeper), state: o.state, tokenId: o.token_id, code: cardCode(contractId, o.token_id), detail: JSON.parse(o.detail), tx: o.tx_sig, swapStatus: o.swap_status, swapAmountOut: o.swap_amount_out })),
       ].sort((a, b) => b.at - a.at).slice(0, 40);
-      return { account, cards, active: orders.filter((o) => ["awaiting_payment", "paid", "minted", "purchased", "needs_attention"].includes(o.state)).map((o) => ({ orderId: o.id, state: o.state, status: o.checkout_status, packType: o.pack_type, priceUnits: o.price_units, createdAt: o.created_at, lastError: o.last_error })), activity };
+      return { account, cards, active: orders.filter((o) => ["awaiting_payment", "paid", "minted", "purchased", "needs_attention"].includes(o.state)).map((o) => ({ orderId: o.id, state: o.state, status: o.checkout_status, packType: o.pack_type, priceUnits: o.price_units, createdAt: o.created_at, lastError: o.last_error, tokenId: o.token_id, code: o.token_id ? cardCode(contractId, o.token_id) : null })), activity };
     }],
     ["GET", /^\/pay-assets$/, async () => (await d.checkout.tokens()).filter((t) => !SMALL_SWAPS_BLOCKED.has(t.blockchain) && (config.network !== "testnet" || t.assetId !== config.checkoutDestinationAsset)).map(assetView)],
     // The small-swap block is on where a swap is paid from, so a cash-out can go to those chains.
@@ -166,7 +171,7 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
     ["GET", /^\/orders\/([^/]+)$/, async (m) => {
       const order = d.db.order(decodeURIComponent(m[1]));
       if (!order) throw Object.assign(new Error("unknown order"), { status: 404 });
-      return { ...order, verifyUrl: order.memo ? d.cc.verifyUrl(order.memo) : null };
+      return { ...order, verifyUrl: order.memo ? d.cc.verifyUrl(order.memo) : null, code: order.token_id ? cardCode(contractId, order.token_id) : null };
     }],
     ["POST", /^\/orders\/([^/]+)\/retry$/, async (m) => {
       const { state } = pipeline.retry(decodeURIComponent(m[1]));
@@ -190,7 +195,13 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
       await d.checkout.submitDeposit(b.txHash, decodeURIComponent(m[1]), b.memo);
       return { ok: true };
     }],
-    ["GET", /^\/cards\/([^/]+)$/, async (m) => cardView(m[1])],
+    ["GET", /^\/cards\/([^/]+)$/, async (m) => cardView(decodeURIComponent(m[1]))],
+    // Where a slug, a code or an old token id points: the app uses it to turn old links into readable ones.
+    ["GET", /^\/lookup\/([^/]+)$/, async (m) => {
+      const tokenId = await cards.resolve(decodeURIComponent(m[1]));
+      if (!tokenId) throw Object.assign(new Error("unknown card"), { status: 404 });
+      return cards.links(tokenId);
+    }],
     ["POST", /^\/cards\/([^/]+)\/sellback$/, async (m, b) => {
       need(b, "actor");
       return ops.prepareSellback(m[1], b.actor);

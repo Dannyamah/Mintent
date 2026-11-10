@@ -77,7 +77,7 @@ function Shop({ packs, onPick }: { packs: Pack[]; onPick: (p: Pack) => void }) {
         {packs.slice(0, 8).map((p, i) => (
           <motion.li key={p.code} initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.7, delay: i * 0.07, ease: EASE }}>
             <div className="pack-card">
-              <a href={`#/packs/${p.code}`} className="pack-card__art" aria-label={`Details of the ${p.name}`}>
+              <a href={`/packs/${p.slug}`} className="pack-card__art" aria-label={`Details of the ${p.name}`}>
                 <Tilt foil="pack" max={14} className="pack-card__tilt"><PackArt price={p.price} /></Tilt>
               </a>
               <div className="pack-card__body">
@@ -136,7 +136,7 @@ function Bento() {
           </div>
           <h3>A sale can't be cheated</h3>
           <p>A seller can't get a transfer signed and then sell you an empty NFT. We proved that attack on a live contract, then made the contract refuse it. Run it yourself.</p>
-          <a className="link-arrow" href="#/security">Read the threat model <ArrowRight size={15} aria-hidden="true" /></a>
+          <a className="link-arrow" href="/security">Read the threat model <ArrowRight size={15} aria-hidden="true" /></a>
         </Reveal>
         <Reveal className="bento__cell bento__cell--d" delay={0.16}>
           <ul className="exits">
@@ -160,7 +160,7 @@ function ProofBand() {
           <p className="kicker">Don't trust us</p>
           <h2 id="proof-title" className="display">Check any pull yourself</h2>
           <p className="lede">One command, using public data only. It trusts nothing from Mintent.</p>
-          <a className="link-arrow" href="#/security">How we keep it honest <ArrowRight size={15} aria-hidden="true" /></a>
+          <a className="link-arrow" href="/security">How we keep it honest <ArrowRight size={15} aria-hidden="true" /></a>
         </Reveal>
         <Reveal delay={0.1}>
           <div className="terminal">

@@ -51,7 +51,7 @@ for (const [name, viewport] of [["desktop", { width: 1440, height: 900 }], ["lap
     return a.getAttribute("href");
   });
   for (const [route, label, wait] of [[code, "pack", ".facts"], ["#/security", "security", ".threats"], ["#/docs", "docs", ".docs__facts dd"], ["#/nope", "notfound", ".empty"], ["#/dashboard", "dashboard-out", ".empty"]]) {
-    await page.goto(`${url}${route}`);
+    await page.goto(new URL(route, url).href);
     await page.waitForSelector(wait, { timeout: 20000 }).catch(() => problems.push(`${label}: ${wait} missing`));
     await page.waitForTimeout(1400);
     await page.screenshot({ path: `${out}/${name}-${label}.png` });

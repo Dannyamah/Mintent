@@ -9,6 +9,8 @@ import { CopyButton, EASE, RarityBadge, Skeleton, Tilt, useNow, useToast } from 
 import { KeeperPanel } from "./KeeperPanel";
 import { exitFee, sellbackPrice } from "./verifyMessage";
 import { refusal, type SigningIntent, type Wallet as WalletT } from "./wallet";
+import { cardPath } from "./links";
+import { canonicalize } from "./router";
 
 type Action = "sellback" | "withdrawCard" | "cashOut" | "transfer";
 const DIRECT = "direct"; // USDC on Solana is already what the NFT holds, so it needs no swap.
@@ -106,8 +108,10 @@ const ACTIONS: { key: Action; icon: React.ReactNode; title: string; desc: string
   { key: "withdrawCard", icon: <Truck size={20} aria-hidden="true" />, title: "Withdraw card to my wallet", desc: "To list it, or redeem the slab" },
 ];
 
-export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: string; health: Health; wallet: WalletT | null; loginWallet: LoginWallet | null }) {
+/** A card, at /cards/<name>. Codes and old token-id links also resolve, and are replaced by the readable address. */
+export function CardPage({ cardKey, health, wallet, loginWallet }: { cardKey: string; health: Health; wallet: WalletT | null; loginWallet: LoginWallet | null }) {
   const [card, setCard] = useState<Card | null>(null);
+  const tokenId = card?.token_id ?? "";
   const [imgLoaded, setImgLoaded] = useState(false);
   const [action, setAction] = useState<Action | null>(null);
   const [destination, setDestination] = useState("");
@@ -121,7 +125,10 @@ export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: st
   const toast = useToast();
   const now = useNow(15_000);
 
-  const load = useCallback(() => api.card(tokenId).then(setCard, (e) => setError(e.message)), [tokenId]);
+  const load = useCallback(() => api.card(cardKey).then((c) => {
+    setCard(c);
+    canonicalize(cardPath(c.links));
+  }, (e) => setError(e.message)), [cardKey]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -129,7 +136,7 @@ export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: st
   if (!card) {
     return (
       <main className="page">
-        {error ? <div className="empty"><h1 className="display">We can't find that card</h1><p className="lede">{error}</p><a className="btn btn--primary" href="#/">Back to the packs</a></div> : (
+        {error ? <div className="empty"><h1 className="display">We can't find that card</h1><p className="lede">{error}</p><a className="btn btn--primary" href="/#packs">Back to the packs</a></div> : (
           <div className="card-page__grid">
             <Skeleton style={{ aspectRatio: "5 / 8", display: "block", borderRadius: 18 }} />
             <div className="stack"><Skeleton style={{ height: 22, width: 160 }} /><Skeleton style={{ height: 64 }} /><Skeleton style={{ height: 180 }} /><Skeleton style={{ height: 280 }} /></div>
@@ -248,7 +255,7 @@ export function CardPage({ tokenId, health, wallet, loginWallet }: { tokenId: st
   return (
     <motion.main className={`page card-page card-page--${rarity}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className={`card-glow card-glow--${rarity}`} aria-hidden="true" />
-      <a className="back" href="#/dashboard"><ArrowLeft size={15} aria-hidden="true" /> Your dashboard</a>
+      <a className="back" href="/dashboard"><ArrowLeft size={15} aria-hidden="true" /> Your dashboard</a>
       <div className="card-page__grid">
         <figure className="slab">
           <Tilt foil={rarity} max={13} className="slab__frame">

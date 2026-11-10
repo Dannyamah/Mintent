@@ -5,17 +5,24 @@ import { useEffect, useState } from "react";
 import { api, usd, type Pack, type PackDetail } from "./api";
 import { PackArt } from "./Home";
 import { EASE, Reveal, Skeleton, Tilt } from "./ui";
+import { canonicalize } from "./router";
 
-export function PackPage({ code, onPick }: { code: string; onPick: (p: Pack) => void }) {
+/** A pack, addressed by its name ("/packs/25-graded-card-pack") or, from old links, by Collector Crypt's code. */
+export function PackPage({ packKey, packs, onPick }: { packKey: string; packs: Pack[]; onPick: (p: Pack) => void }) {
   const [pack, setPack] = useState<PackDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const match = packs.find((p) => p.slug === packKey || p.code === packKey);
+  const code = match?.code ?? (packs.length ? null : undefined);
   useEffect(() => {
+    if (code === null) setError("unknown pack");
+    if (!code) return;
+    if (match) canonicalize(`/packs/${match.slug}`);
     api.pack(code).then(setPack, (e) => setError(e.message));
-  }, [code]);
+  }, [code, match, packKey]);
   if (error) return <NotFound what="that pack" />;
   return (
     <main className="page">
-      <a className="back" href="#/"><ArrowLeft size={15} aria-hidden="true" /> All packs</a>
+      <a className="back" href="/#packs"><ArrowLeft size={15} aria-hidden="true" /> All packs</a>
       {!pack ? (
         <div className="card-page__grid"><Skeleton style={{ aspectRatio: "3 / 4.4", display: "block", borderRadius: 18 }} /><Skeleton style={{ height: 420, display: "block" }} /></div>
       ) : (
@@ -81,7 +88,7 @@ const THREATS: { icon: React.ReactNode; title: string; body: string }[] = [
 export function SecurityPage() {
   return (
     <main className="page page--narrow">
-      <a className="back" href="#/"><ArrowLeft size={15} aria-hidden="true" /> Home</a>
+      <a className="back" href="/"><ArrowLeft size={15} aria-hidden="true" /> Home</a>
       <Reveal>
         <p className="kicker">Security</p>
         <h1 className="display">What stops a seller keeping the card?</h1>
@@ -118,7 +125,7 @@ export function NotFound({ what = "that page" }: { what?: string }) {
     <main className="page">
       <div className="empty empty--center">
         <h1 className="display">We can't find {what}</h1>
-        <a className="btn btn--primary" href="#/">Back to the packs</a>
+        <a className="btn btn--primary" href="/#packs">Back to the packs</a>
       </div>
     </main>
   );

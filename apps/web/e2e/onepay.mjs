@@ -102,7 +102,7 @@ try {
   check("to the checkout's deposit address", receipt?.logs?.some((l) => l.topics?.[2]?.toLowerCase().endsWith(deposit.slice(2).toLowerCase())), deposit);
 
   await Promise.race([
-    page.waitForURL(/#\/reveal\//, { timeout: 8 * 60000 }),
+    page.waitForURL(/\/open\//, { timeout: 8 * 60000 }),
     page.locator(".sheet .error").waitFor({ timeout: 8 * 60000 }).then(async () => { throw new Error(`order failed: ${await page.locator(".sheet .error").innerText()}`); }),
   ]);
   const tokenId = page.url().split("/").pop();

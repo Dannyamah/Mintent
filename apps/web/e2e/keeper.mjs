@@ -40,10 +40,12 @@ async function setKeeper(id, { minimum, hold }) {
     await page.getByRole("button", { name: "Turn off the Keeper" }).click();
     await page.waitForSelector('.keeper[data-keeper="off"]', { timeout: 60000 });
   }
-  await page.locator(`input[name="keeper-mode"]`).nth(hold ? 1 : 0).check();
+  await page.getByText(hold ? "Keep the card, sell at the last minute" : "As soon as the offer is high enough").click();
   await page.locator("#keeper-min").fill(minimum.toFixed(2));
-  if (!hold) await page.locator("#keeper-days").selectOption("1");
+  if (!hold) await page.locator(".kchip", { hasText: /^1 day$/ }).click();
+  await page.getByText("Send it to my Solana wallet").click();
   await page.locator("#keeper-payout").fill(PAYOUT);
+  check("the Keeper says exactly what it will do before it's turned on", /sell this card to Collector Crypt for at least \$/.test(await page.locator(".keeper__summary").innerText()));
   await page.getByRole("button", { name: "Turn on the Keeper" }).click();
   await page.waitForSelector('.keeper[data-keeper="on"]', { timeout: 60000 });
 }
@@ -59,9 +61,11 @@ try {
   await page.locator(".check input").check();
   await page.getByRole("button", { name: "Get payment details" }).click();
   await page.getByRole("button", { name: "Pay with test USDC" }).click({ timeout: 60000 });
-  await page.waitForURL(/#\/reveal\//, { timeout: 8 * 60000 });
-  const id = page.url().split("/").pop();
-  let card = await cardApi(id);
+  await page.waitForURL(/\/open\//, { timeout: 8 * 60000 });
+  const code = page.url().split("/").pop();
+  check("the opening's address doesn't give the card away", /^[1-9A-HJ-NP-Za-km-z]{8}$/.test(code), page.url());
+  let card = await cardApi(code);
+  const id = card.token_id;
   const offer = card.offer?.amountUnits / 1e6;
   log(`token ${id}, offer $${offer}, payout address ${PAYOUT}`);
 

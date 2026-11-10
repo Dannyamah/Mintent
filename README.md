@@ -36,7 +36,7 @@ Built at NEAR HACKATHON for these tracks:
 | Function-call access keys | The Keeper's key can call only `keeper_sign` and `keeper_payout` on the contract. | `scripts/src/restrict-keeper-key.ts` |
 | NEAR accounts for email and wallet users | Privy creates a NEAR account for each user, with an exportable key. No NEAR wallet or seed phrase is needed. | `apps/web/src/privy.tsx` |
 
-The app explains all of this for users on its [How it works](https://web-testnet-production-2eb9.up.railway.app/#/docs) page.
+The app explains all of this for users on its [How it works](https://web-testnet-production-2eb9.up.railway.app/how-it-works) page.
 
 > **The evidence below comes from public test networks. The contract is also deployed on mainnet, and its Keeper runs on a function-call key there too.** NEAR Intents has no testnet, so the test site uses Tidepool, a community test version of the 1Click API. See [Limits](#limits).
 
@@ -52,6 +52,7 @@ On the [testnet site](https://web-testnet-production-2eb9.up.railway.app):
 | Scroll to the packs, choose **Open a $25 pack**, tick the 18+ box, then **Get payment details** | A deposit address and the exact amount, from a 1Click quote |
 | Choose **Pay with test USDC** | The steps tick through: payment proven, NFT minted, pack bought, the draw. Takes 2–4 minutes. |
 | Choose **Tear open your pack** | A real graded card from Collector Crypt's devnet, owned by your NFT |
+| Choose **Your dashboard**, then come back to the pack another time | Leave mid-order and the dashboard shows it on its way, then offers **Open it**. Nothing names the card until you do. |
 | Choose **View your card** | "Check it yourself": the NFT's owner on NEAR, its Solana address and who holds the card, each linked to an explorer |
 | Choose **Sell back for USDC**, then **Confirm** | The card goes back to Collector Crypt, and the USDC lands in the NFT's own address |
 | On a card you haven't sold, set a minimum below the offer and choose **Turn on the Keeper** | Within a minute, the Keeper's reasoning, then the sale |
@@ -80,8 +81,8 @@ pnpm verify:keeper mintent-con-mw7mmwr5.testnet 25 # sold and paid out by the Ke
 
 ```bash
 pnpm --filter @mintent/checkout test   # 7 pass: checkout
-pnpm --filter @mintent/relayer test    # 74 pass: order pipeline, sell-back, cash-out, recovery, Keeper
-pnpm test:web                          # 17 pass: the signing check refuses tampered messages and wrong fees; Privy signer; wallet payment encoding
+pnpm --filter @mintent/relayer test    # 77 pass: order pipeline, sell-back, cash-out, recovery, Keeper, card addresses
+pnpm test:web                          # 19 pass: the signing check refuses tampered messages and wrong fees; Privy signer; wallet payment encoding; card addresses
 pnpm test:contracts                    # 81 unit tests + 1 sandbox run, including the attack and Keeper tests; needs Rust and cargo-near
 ```
 
@@ -149,6 +150,7 @@ node e2e/tamper.mjs <screenshot-dir>  # a compromised relayer against the real a
 node e2e/keeper.mjs <screenshot-dir>  # the Keeper: five attacks refused on-chain, hold mode, then a sale and payout (relayer needs KEEPER_ACCOUNT)
 node e2e/onepay.mjs <screenshot-dir>  # sign in with a wallet and pay from Base Sepolia in one click
 node e2e/signin.mjs <screenshot-dir>  # wallet sign-in through Privy's real service, and sign-out
+node e2e/dashboard.mjs <screenshot-dir> # leave checkout mid-order, then open the pack from the dashboard; readable card addresses
 node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 ```
 

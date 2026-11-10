@@ -1057,3 +1057,47 @@ test("reconciler: flags released-but-still-here instead of guessing", async () =
   w.card.record.status = "Released";
   assert.deepEqual((await reconcile(w.deps)).map((x) => x.action), ["drift"]);
 });
+
+// ---------- readable card addresses ----------
+import { createCardIndex } from "../src/card-index.js";
+import { cardCode, cardSlug, packSlug } from "@mintent/shared";
+
+test("card slugs come from the on-chain title, and a sealed pack has none", () => {
+  assert.equal(cardSlug("2025 #222 Jamming Tower PSA 10 J"), "2025-222-jamming-tower-psa-10-j");
+  assert.equal(cardSlug("Sold back: 2024 #119 Monkey D. Luffy PSA 10"), "2024-119-monkey-d-luffy-psa-10");
+  assert.equal(cardSlug("Withdrawn: Café Crème"), "cafe-creme");
+  assert.equal(cardSlug("Mintent pack #7 (sealed)"), null);
+  assert.equal(cardSlug(null), null);
+  assert.equal(packSlug("$25 Graded Card Pack"), "25-graded-card-pack");
+});
+
+test("the card index resolves slugs, codes and old token ids, numbering repeated names in mint order", async () => {
+  const titles = ["Abra PSA 10", "Mintent pack #1 (sealed)", "Sold back: Abra PSA 10", "Withdrawn: Abra PSA 10", ...Array.from({ length: 150 }, (_, i) => `Card ${i}`)];
+  let calls = 0;
+  const index = createCardIndex({ async tokenPage(from, limit) { calls++; return titles.slice(from, from + limit).map((title, i) => ({ tokenId: String(from + i), title })); } }, "c.testnet");
+  assert.equal(await index.resolve("abra-psa-10"), "0");
+  assert.equal(await index.resolve("abra-psa-10-2"), "2");
+  assert.equal(await index.resolve("abra-psa-10-3"), "3");
+  assert.equal(await index.resolve("card-149"), "153", "tokens past the first page are found");
+  assert.equal(await index.resolve(cardCode("c.testnet", "1")), "1", "a sealed pack resolves by its code");
+  assert.equal(await index.resolve("2"), "2", "an old link with a token id still works");
+  assert.equal(await index.resolve("999"), null);
+  assert.equal(await index.resolve("no-such-card"), null);
+  const sealed = await index.links("1");
+  assert.equal(sealed.slug, null);
+  assert.equal(sealed.path, `/open/${cardCode("c.testnet", "1")}`, "a sealed pack's link doesn't give the card away");
+  assert.equal((await index.links("2")).path, "/cards/abra-psa-10-2");
+  assert.ok(calls <= 6, `the index isn't rebuilt on every miss (${calls} pages read)`);
+  assert.notEqual(cardCode("c.testnet", "1"), cardCode("other.testnet", "1"), "codes differ between contracts");
+  assert.match(cardCode("c.testnet", "1"), /^[1-9A-HJ-NP-Za-km-z]{8}$/);
+});
+
+test("a pack minted since the index was built resolves by its code without reading the token list again", async () => {
+  const titles = ["A", "B"];
+  let calls = 0;
+  const index = createCardIndex({ async tokenPage(from, limit) { calls++; return titles.slice(from, from + limit).map((title, i) => ({ tokenId: String(from + i), title })); } }, "c.testnet");
+  assert.equal(await index.resolve("a"), "0");
+  const before = calls;
+  assert.equal(await index.resolve(cardCode("c.testnet", "7")), "7");
+  assert.equal(calls, before, "no token-list read for a brand-new pack's code");
+});

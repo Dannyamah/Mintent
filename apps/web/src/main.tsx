@@ -14,21 +14,10 @@ import { Logo } from "./Logo";
 import { RevealPage } from "./Reveal";
 import { CopyButton, EASE, Sheet, Toasts, useToast } from "./ui";
 import { endTestSession, exportKey, hasStoredWallet, isTestSessionActive, openWallet, type Wallet } from "./wallet";
+import { navigate, usePath } from "./router";
+import { cardCode, openPath } from "./links";
 import "./styles.css";
 
-function useRoute(): string {
-  const [route, setRoute] = useState(window.location.hash.slice(1) || "/");
-  useEffect(() => {
-    const on = () => {
-      const next = window.location.hash.slice(1) || "/";
-      setRoute(next);
-      window.scrollTo({ top: 0, behavior: "auto" });
-    };
-    window.addEventListener("hashchange", on);
-    return () => window.removeEventListener("hashchange", on);
-  }, []);
-  return route;
-}
 
 const PRIVY_APP_ID = (import.meta.env.VITE_PRIVY_APP_ID as string | undefined) || null;
 // If the sign-in code can't load (a blocker, a dropped connection), the shop still works and the sheet says so.
@@ -117,7 +106,7 @@ function AccountMenu({ wallet, privy, onSignOutTest }: { wallet: Wallet; privy: 
             {isPrivy && privy?.loginWallet && <p className="hint menu__login">Signed in with {short(privy.loginWallet.address, 6)}</p>}
             <p className="eyebrow">NEAR account</p>
             <div className="menu__acct"><code>{short(wallet.accountId, 10)}</code><CopyButton text={wallet.accountId} label="Copy account" /></div>
-            <a className="menu__item" href="#/dashboard" onClick={() => setOpen(false)}><LayoutGrid size={16} aria-hidden="true" /> Dashboard</a>
+            <a className="menu__item" href="/dashboard" onClick={() => setOpen(false)}><LayoutGrid size={16} aria-hidden="true" /> Dashboard</a>
             {isPrivy ? (
               <>
                 <button className="menu__item" onClick={() => { setOpen(false); privy!.exportKey().catch(() => toast("We couldn't open the key export. Try again.")); }}>
@@ -159,21 +148,14 @@ function Nav({ wallet, privy, onSignIn, onSignOutTest, ready, route }: { wallet:
   const { scrollY } = useScroll();
   const [scrolled, setScrolled] = useState(false);
   useMotionValueEvent(scrollY, "change", (y) => setScrolled(y > 24));
-  const goPacks = (e: React.MouseEvent) => {
-    if (route === "/") {
-      e.preventDefault();
-      document.getElementById("packs")?.scrollIntoView({ behavior: "smooth" });
-    } else {
-      setTimeout(() => document.getElementById("packs")?.scrollIntoView({ behavior: "smooth" }), 250);
-    }
-  };
+
   return (
     <motion.header className={`nav ${scrolled ? "is-scrolled" : ""}`} initial={{ y: -30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.7, ease: EASE }}>
       <Logo label="Mintent home" />
       <nav aria-label="Main">
-        <a href="#/" onClick={goPacks} aria-label="Packs"><Package size={16} aria-hidden="true" /><span>Packs</span></a>
-        <a href="#/docs" className={route === "/docs" ? "is-on" : ""} aria-label="How it works"><BookOpen size={16} aria-hidden="true" /><span>How it works</span></a>
-        <a href="#/dashboard" className={route === "/dashboard" ? "is-on" : ""} aria-label="Dashboard"><LayoutGrid size={16} aria-hidden="true" /><span>Dashboard</span></a>
+        <a href="/#packs" aria-label="Packs"><Package size={16} aria-hidden="true" /><span>Packs</span></a>
+        <a href="/how-it-works" className={route === "/how-it-works" ? "is-on" : ""} aria-label="How it works"><BookOpen size={16} aria-hidden="true" /><span>How it works</span></a>
+        <a href="/dashboard" className={route === "/dashboard" ? "is-on" : ""} aria-label="Dashboard"><LayoutGrid size={16} aria-hidden="true" /><span>Dashboard</span></a>
         {wallet ? <AccountMenu wallet={wallet} privy={privy} onSignOutTest={onSignOutTest} />
           : privy?.creating ? <button className="btn btn--small" disabled>Setting up…</button>
           : privy?.error ? <button className="btn btn--small btn--primary" onClick={privy.retry} title={privy.error}>Try again</button>
@@ -184,7 +166,7 @@ function Nav({ wallet, privy, onSignIn, onSignOutTest, ready, route }: { wallet:
 }
 
 function App() {
-  const route = useRoute();
+  const route = usePath();
   const [health, setHealth] = useState<Health | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [pulls, setPulls] = useState<Pull[]>([]);
@@ -233,18 +215,18 @@ function App() {
     else setSignIn(p);
   }, [wallet, privy?.creating]);
 
-  const cardMatch = route.match(/^\/card\/([^/]+)$/);
-  const revealMatch = route.match(/^\/reveal\/([^/]+)$/);
-  const packMatch = route.match(/^\/packs\/([^/]+)$/);
+  const cardMatch = route.match(/^\/cards\/([^/]+)\/?$/);
+  const revealMatch = route.match(/^\/open\/([^/]+)\/?$/);
+  const packMatch = route.match(/^\/packs\/([^/]+)\/?$/);
 
   const page = (() => {
     if (route === "/") return <Home pulls={pulls} packs={packs} onPick={pick} />;
-    if (packMatch) return <PackPage code={packMatch[1]} onPick={pick} />;
+    if (packMatch) return <PackPage packKey={decodeURIComponent(packMatch[1])} packs={packs} onPick={pick} />;
     if (route === "/security") return <SecurityPage />;
-    if (route === "/docs") return <DocsPage health={health} />;
+    if (route === "/how-it-works") return <DocsPage health={health} />;
     if (!health) return <main className="page" />;
-    if (cardMatch) return <CardPage key={cardMatch[1]} tokenId={cardMatch[1]} health={health} wallet={wallet} loginWallet={privy?.wallet ? privy.loginWallet : null} />;
-    if (revealMatch) return <RevealPage key={revealMatch[1]} tokenId={revealMatch[1]} />;
+    if (cardMatch) return <CardPage key={cardMatch[1]} cardKey={decodeURIComponent(cardMatch[1])} health={health} wallet={wallet} loginWallet={privy?.wallet ? privy.loginWallet : null} />;
+    if (revealMatch) return <RevealPage key={revealMatch[1]} cardKey={decodeURIComponent(revealMatch[1])} contractId={health.contract} />;
     if (route === "/dashboard") return <Dashboard health={health} wallet={wallet} onSignIn={() => setSignIn("plain")} />;
     return <NotFound />;
   })();
@@ -275,10 +257,10 @@ function App() {
               <p>Every pull in Near Mintent condition.</p>
             </div>
             <nav aria-label="Footer">
-              <a href="#/">Packs</a>
-              <a href="#/dashboard">Dashboard</a>
-              <a href="#/docs">How it works</a>
-              <a href="#/security">Security</a>
+              <a href="/#packs">Packs</a>
+              <a href="/dashboard">Dashboard</a>
+              <a href="/how-it-works">How it works</a>
+              <a href="/security">Security</a>
             </nav>
             <div className="foot__legal">
               <p>Random packs aren't for everyone. 18+. Odds and sell-back terms are shown before you pay. Insured value is Collector Crypt's reference price, not a market price.</p>
@@ -317,7 +299,7 @@ function App() {
               onClose={() => setPicked(null)}
               onDone={(id) => {
                 setPicked(null);
-                window.location.hash = `#/reveal/${id}`;
+                void cardCode(health.contract, id).then((code) => navigate(openPath(code)));
               }}
             />
           )}

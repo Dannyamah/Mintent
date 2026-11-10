@@ -11,6 +11,15 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-037 · 10 Nov · Readable addresses; a dashboard that brings you back to unopened packs; a Keeper you can understand at first sight
+
+- **Your request:** "a better navigation than card numbers", a dashboard that lets you open a pack after closing the tab, and a Keeper panel that's understandable the first time.
+- **Addresses:** paths instead of `#/…`: `/dashboard`, `/how-it-works`, `/security`, `/packs/25-graded-card-pack`, and `/cards/<card name>`, such as `/cards/2025-222-jamming-tower-psa-10-j`. A second card with the same name gets `-2`, in mint order. A pack not yet revealed is at `/open/<8-character code>`, so the address bar doesn't give the pull away. The relayer builds the index from the contract's own token list, so every token resolves, whichever relayer minted it. Old `#/card/<id>` links redirect. The static server already sends any non-file path to the app; a missing build file is now a 404.
+- **Why names, not ids:** shorter to share, and readable. The token id stays visible on the card page, and in `verify:pull`, where it's needed.
+- **Dashboard:** "Ready for you" lists packs to open, offers ending within 3 days, and money to cash out. Orders on their way show four steps and open the live reveal. An unopened pack stays sealed in the vault, and nothing on the dashboard names its card, until you open it. "Opened" is remembered per browser, so a pack older than 3 days isn't offered again in a new browser.
+- **Keeper:** one sentence on what it does, three steps on how, four plain questions, price shortcuts from today's offer, and a sentence saying exactly what will happen, including what you'll receive after the fee. When on: a status badge, its latest reasoning, a progress track and your rules at a glance. "What it can't do" folds away.
+- **Proven:** `e2e/dashboard.mjs` leaves checkout mid-order and opens the pack from the dashboard on testnet.
+
 ### D-036 · 10 Nov · Mainnet Keeper on a function-call key; Keeper calls reserve 50 TGas
 
 - **Your approval:** the mainnet upgrade and key, given 10 Nov.

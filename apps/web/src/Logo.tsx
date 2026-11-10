@@ -18,7 +18,7 @@ export function MintentMark({ size = 32, className }: { size?: number; className
 
 export function Logo({ label }: { label?: string }) {
   return (
-    <a className="logo" href="#/" aria-label={label}>
+    <a className="logo" href="/" aria-label={label}>
       <MintentMark className="logo__mark" size={38} />
       <span className="logo__word">Mintent<small>on NEAR</small></span>
     </a>
