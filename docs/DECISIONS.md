@@ -11,6 +11,13 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
+### D-038 · 10 Nov · One-tap Keeper; a type system of our own; a dense dashboard on phones
+
+- **Your feedback:** the Keeper had too many fields for a phone, and the font and dashboard felt generic and too big on mobile.
+- **Keeper:** turning it on is one tap. A two-way switch ("Sell now" or "Wait for the deadline"), one line that states the settings (today's offer as the minimum, 7 days, money stays in the NFT), and the button. Price, duration and payout address sit behind "Change". When on: its reasoning, a slim progress track and the rules on one line.
+- **Type:** Instrument Serif with Geist is the default look of many new web apps. Headings and numbers are now Bricolage Grotesque at a semi-condensed width, which echoes the condensed lettering of a grading label and keeps big numbers narrow on a phone. Body text is Instrument Sans, and codes stay in Geist Mono. The Mintent wordmark keeps Instrument Serif, so the logo and brand assets don't change. Display sizes are about 20% smaller, and body text is 15px on phones.
+- **Dashboard on phones:** the vault value, three small stats and "Ready for you" fit on the first screen. Filters scroll sideways, and the cards sit two to a row with smaller labels.
+
 ### D-037 · 10 Nov · Readable addresses; a dashboard that brings you back to unopened packs; a Keeper you can understand at first sight
 
 - **Your request:** "a better navigation than card numbers", a dashboard that lets you open a pack after closing the tab, and a Keeper panel that's understandable the first time.

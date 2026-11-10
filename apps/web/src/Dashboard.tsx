@@ -251,12 +251,12 @@ export function Dashboard({ health, wallet, onSignIn }: { health: Health; wallet
           <div className="stat__glow" aria-hidden="true" />
         </Reveal>
         <Reveal className="stat" delay={0.06}>
-          <p className="stat__label"><WalletIcon size={15} aria-hidden="true" /> USDC to withdraw</p>
+          <p className="stat__label"><WalletIcon size={15} aria-hidden="true" /> USDC<span className="wide-only"> to withdraw</span></p>
           {data ? <p className="stat__num"><CountUp value={claimable} format={money} /></p> : <Skeleton style={{ height: 40, width: 110, display: "block" }} />}
           <p className="hint">{claimable > 0 ? "Held by your NFTs. Open a sold card to withdraw." : "Sell a card back and it lands here."}</p>
         </Reveal>
         <Reveal className="stat" delay={0.12}>
-          <p className="stat__label"><Timer size={15} aria-hidden="true" /> Sell-back offers</p>
+          <p className="stat__label"><Timer size={15} aria-hidden="true" /> <span className="wide-only">Sell-back offers</span><span className="narrow-only">Offers</span></p>
           {data ? <p className="stat__num"><CountUp value={offerTotal} format={money} /></p> : <Skeleton style={{ height: 40, width: 110, display: "block" }} />}
           <p className="hint">{soonest ? <>Next one ends in <strong>{timeLeft(soonest.offer!.expiresAt)}</strong></> : "No live offers."}</p>
         </Reveal>

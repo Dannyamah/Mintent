@@ -40,12 +40,14 @@ async function setKeeper(id, { minimum, hold }) {
     await page.getByRole("button", { name: "Turn off the Keeper" }).click();
     await page.waitForSelector('.keeper[data-keeper="off"]', { timeout: 60000 });
   }
-  await page.getByText(hold ? "Keep the card, sell at the last minute" : "As soon as the offer is high enough").click();
+  await page.locator(".kmode__opt", { hasText: hold ? "Wait for the deadline" : "Sell now" }).click();
+  await page.getByRole("button", { name: "Change" }).click();
   await page.locator("#keeper-min").fill(minimum.toFixed(2));
   if (!hold) await page.locator(".kchip", { hasText: /^1 day$/ }).click();
-  await page.getByText("Send it to my Solana wallet").click();
+  await page.locator(".kchip", { hasText: "Send it to my Solana wallet" }).click();
   await page.locator("#keeper-payout").fill(PAYOUT);
-  check("the Keeper says exactly what it will do before it's turned on", /sell this card to Collector Crypt for at least \$/.test(await page.locator(".keeper__summary").innerText()));
+  const summary = await page.locator(".keeper__summary").innerText();
+  check("the Keeper's one line of settings says what it will do", summary.includes(`at least $${minimum.toFixed(2)}`) && summary.includes("pays"), summary);
   await page.getByRole("button", { name: "Turn on the Keeper" }).click();
   await page.waitForSelector('.keeper[data-keeper="on"]', { timeout: 60000 });
 }

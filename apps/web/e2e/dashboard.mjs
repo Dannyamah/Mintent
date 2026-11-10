@@ -82,8 +82,14 @@ try {
   await page.locator(".keeper").scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${out}/keeper-off-desktop.png`, fullPage: true });
   await page.locator(".keeper").screenshot({ path: `${out}/keeper-off-panel.png` });
-  check("the Keeper explains itself before asking anything", /sells this card back for you/.test(await page.locator(".keeper__lede").innerText()) && (await page.locator(".keeper__how li").count()) === 3);
-  check("and says what will happen before it's turned on", /sell this card to Collector Crypt for at least/.test(await page.locator(".keeper__summary").innerText()));
+  check("the Keeper explains itself in one line", /sells this card back for you/i.test(await page.locator(".keeper__lede").innerText()));
+  check(
+    "turning it on needs no typing: today's offer is the minimum, and the money stays in the NFT",
+    (await page.locator(".kmode__opt").count()) === 2 &&
+      (await page.locator(".keeper input:not([type=radio]):visible").count()) === 0 &&
+      !(await page.getByRole("button", { name: "Turn on the Keeper" }).isDisabled()) &&
+      (await page.locator(".keeper__summary").innerText()).includes("at least $"),
+  );
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator(".keeper").screenshot({ path: `${out}/keeper-off-phone.png` });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
