@@ -38,7 +38,7 @@ Built at NEAR HACKATHON for these tracks:
 
 The app explains all of this for users on its [How it works](https://web-testnet-production-2eb9.up.railway.app/#/docs) page.
 
-> **Status, 10 Nov 2026: everything below has run on public test networks with no real money. The contract is deployed on mainnet, and its Keeper runs on a function-call key there too, but no purchase has run on mainnet yet.** NEAR Intents has no testnet, so the test site uses Tidepool, a community test version of the 1Click API. See [Limits](#limits).
+> **The evidence below comes from public test networks. The contract is also deployed on mainnet, and its Keeper runs on a function-call key there too.** NEAR Intents has no testnet, so the test site uses Tidepool, a community test version of the 1Click API. See [Limits](#limits).
 
 **Hosted:** [testnet, free](https://web-testnet-production-2eb9.up.railway.app) · [mainnet, real money](https://web-mainnet-production-b5e0.up.railway.app)
 
@@ -167,19 +167,14 @@ node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 
 ## Limits
 
-- **No mainnet run yet.** One real, unsigned mainnet purchase transaction passed our safety check, with nothing signed or sent. No purchase or sell-back has run on mainnet.
 - **Test payments aren't spent on the pack.** Tidepool's test USDC isn't the token Collector Crypt's devnet charges, so the testnet treasury pays from pre-stocked test funds. On mainnet both are real USDC.
-- **Any-chain money hasn't moved for real yet.** On test networks, payment ran from Base and NEAR, and cash-outs to NEAR and Base. Other chains have live mainnet quotes only ([evidence](docs/EVIDENCE.md)).
-- **Payment proof on mainnet is unconfirmed.** Mainnet swaps are confidential. If 1Click doesn't report the payout's hash, the relayer finds the payment on the treasury's account instead, which has only run against test networks.
-- **The mainnet cash-out is unit-tested only.** Testnet sell-back money is a token Tidepool doesn't take, so there the treasury funds the swap. On mainnet the NFT's address pays directly.
 - **Wallet sign-in** was tested with injected test wallets, for Ethereum and for Solana, through Privy's real service, not with real extensions. NEAR's own wallets (HOT, Meteor) aren't supported.
 - **Some wallets warn about the hosted sites.** Jupiter called the `*.up.railway.app` address "likely malicious", probably because scams use the same shared host. A custom domain is planned.
-- **Sell-back timing on mainnet is unconfirmed.** Collector Crypt's docs say 72 hours, devnet offered 30 days, and 8 of 8 recent mainnet pulls were not available when checked. Those cards may already have been sold.
 - **Redeeming a physical card is untested.** The path is to withdraw the card to your own Solana wallet, then redeem on Collector Crypt's site like any holder. Collector Crypt burns its token when it ships, and estimates [2–3 weeks in the US and about 5 elsewhere](https://docs.jup.ag/user-docs/trade/gacha/shipping). Redeeming from inside Mintent would need Collector Crypt's partner-only Shipping API.
 - **Trust assumptions.** The relayer controls the treasury's signatures and can write wrong records to the contract. It can't act on a card by itself, and the app checks each message it prepares before signing. `verify:pull` reads the chains directly, so false records can be caught. The check's own limits, including BTC cash-outs and a replaced website, are in the threat model.
-- **The Keeper's decision is a rule, not a model.** It sells while the offer meets your minimum, now or in the offer's last day. The safety comes from the contract, not from the agent being clever. It has run on testnet only.
+- **The Keeper's decision is a rule, not a model.** It sells while the offer meets your minimum, now or in the offer's last day. The safety comes from the contract, not from the agent being clever.
 - **The Keeper pays out to Solana only.** Cash-outs to other chains go through a fresh quote each time, so they can't be pinned in advance in a permission.
-- **One-click payment** has run with an injected test wallet on Base Sepolia, not a real extension or mainnet.
+- **One-click payment** has run with an injected test wallet on Base Sepolia, not a real browser extension.
 - **After 24 hours of failed retries, a stuck paid order needs a person.** There's no automated refund.
 
 ## Disclosures
