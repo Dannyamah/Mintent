@@ -127,7 +127,7 @@ Ben withdrew token 19's $19.55 sell-back: $19.30 reached his address, and the tr
 
 ## Hosted on Railway, 9 Nov
 
-The two-user flow ran against the hosted testnet site, https://web-testnet-production-2eb9.up.railway.app. Ana bought token 22 ($28.47). Ben received the NFT, sold it back for $23.80 and withdrew it. 18 of 19 checks passed. The miss was timing: the pack took 4.8 s to become openable, against a 4 s target, probably because the hosted relayer is further from the RPCs it reads. Wallet sign-in through Privy's real service also works on the hosted site. The hosted mainnet site, https://web-mainnet-production-b5e0.up.railway.app, shows the real-money banner and real pulls, and offers no test account. That check created no orders.
+The two-user flow ran against the hosted testnet site, https://web-testnet-production-2eb9.up.railway.app. Ana bought token 22 ($28.47). Ben received the NFT, sold it back for $23.80 and withdrew it. 18 of 19 checks passed. The miss was timing: the pack took 4.8 s to become openable, against a 4 s target, probably because the hosted relayer is further from the RPCs it reads. Wallet sign-in through Privy's real service also works on the hosted site. The hosted mainnet site, https://mintent.up.railway.app, shows the real-money banner and real pulls, and offers no test account. That check created no orders.
 
 ## The Keeper, live on testnet, 9 Nov
 

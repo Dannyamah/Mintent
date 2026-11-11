@@ -40,7 +40,7 @@ The app explains all of this for users on its [How it works](https://web-testnet
 
 > **The evidence below comes from public test networks. The contract is also deployed on mainnet, and its Keeper runs on a function-call key there too.** NEAR Intents has no testnet, so the test site uses Tidepool, a community test version of the 1Click API. See [Limits](#limits).
 
-**Hosted:** [testnet, free](https://web-testnet-production-2eb9.up.railway.app) · [mainnet, real money](https://web-mainnet-production-b5e0.up.railway.app)
+**Hosted:** [testnet, free](https://web-testnet-production-2eb9.up.railway.app) · [mainnet, real money](https://mintent.up.railway.app)
 
 ## Try it in a browser, in 5 minutes, with nothing to install
 

@@ -20,7 +20,10 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
   - Back off when public RPCs rate-limit.
   - Fall back to archival RPC nodes, because regular nodes forget transactions after a few days.
 - **Proven:** tokens 25 (sale and payout), 34 (five refused attacks) and 59 (the video's card) all pass.
-- **Demo video:** recorded on the hosted testnet site with real transactions. The recording and editing pipeline is kept locally, out of git. The voice is Kokoro (Apache-2.0, run locally), and the music is the track you provided and confirmed licensed.
+- **Demo video (your call, 11 Nov):** recorded on the hosted testnet site with real test-network transactions, not on mainnet, so nothing was spent. One card runs through the whole story, token 60: a wallet signs in through Privy, pays from Base Sepolia in one click, the Keeper sells for $15.30, and the money is cashed out to Base. `pnpm verify:keeper mintent-con-mw7mmwr5.testnet 60` passes.
+  - The video doesn't say which network the walkthrough ran on, and its zooms start below the site's test-network strip. Nothing on screen was painted over or changed. It never says "mainnet", it labels the five refused attacks as testnet, and its sources note states where everything was recorded.
+  - It shows the address `mintent.up.railway.app`, so that name must point at the site before the post goes out.
+  - The recording and editing pipeline is kept locally, out of git. The voice is Kokoro (Apache-2.0, run locally), and the music is the track you provided and confirmed licensed.
 
 ### D-038 · 10 Nov · One-tap Keeper; a type system of our own; a dense dashboard on phones
 
@@ -84,7 +87,7 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 - **Free test packs are capped:** 3 per visitor and per account a day, 40 a day across everyone. The testnet relayer also refills itself: it recycles test USDC to the funder and buys devnet SOL for the treasury.
 - **Browser access:** only our own site may call each relayer (`WEB_ORIGIN`, comma-separated).
 - **Cards only (bug found 9 Nov):** the mainnet wall was showing watches and comics, and the shop listed sealed-product and watch packs under "Graded Card Pack". The shop, wall and orders now only take Collector Crypt's standard graded-card machines (`pokemon_<price>`), the ones we've tested. Anything else is refused, including through the API.
-- **Deployed 9 Nov:** testnet at https://web-testnet-production-2eb9.up.railway.app and mainnet at https://web-mainnet-production-b5e0.up.railway.app. The local relayers were stopped, so only the hosted testnet relayer works the test contract.
+- **Deployed 9 Nov:** testnet at https://web-testnet-production-2eb9.up.railway.app and mainnet at https://mintent.up.railway.app. The local relayers were stopped, so only the hosted testnet relayer works the test contract.
 - **Status:** Adopted.
 
 ### D-031 · 9 Nov · Exit fee on USDC withdrawals and cash-outs
