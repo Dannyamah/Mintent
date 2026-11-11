@@ -20,7 +20,7 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
   - Back off when public RPCs rate-limit.
   - Fall back to archival RPC nodes, because regular nodes forget transactions after a few days.
 - **Proven:** tokens 25 (sale and payout), 34 (five refused attacks) and 59 (the video's card) all pass.
-- **Demo video:** recorded on the hosted testnet site with real transactions, by `apps/web/e2e/demo/record.mjs`. Graphics come from `apps/web/e2e/demo/gfx.mjs`. The voice is Kokoro (Apache-2.0, run locally), and the music is the track you provided and confirmed licensed.
+- **Demo video:** recorded on the hosted testnet site with real transactions. The recording and editing pipeline is kept locally, out of git. The voice is Kokoro (Apache-2.0, run locally), and the music is the track you provided and confirmed licensed.
 
 ### D-038 · 10 Nov · One-tap Keeper; a type system of our own; a dense dashboard on phones
 
