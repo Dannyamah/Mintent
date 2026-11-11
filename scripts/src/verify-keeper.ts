@@ -19,34 +19,62 @@ const check = (name: string, pass: boolean, detail = "") => {
   ok &&= pass;
 };
 
+// Regular RPC nodes forget transactions after a few days; archival nodes keep them, so they're the last resort.
+const ARCHIVAL: Record<NearNetwork, string[]> = {
+  testnet: ["https://archival-rpc.testnet.fastnear.com", "https://archival-rpc.testnet.near.org"],
+  mainnet: ["https://archival-rpc.mainnet.fastnear.com", "https://archival-rpc.mainnet.near.org"],
+};
+
 async function rpc<T>(method: string, params: unknown): Promise<T> {
-  for (const url of [NETWORKS[network].rpc, ...NETWORKS[network].rpcFallbacks]) {
-    const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(15_000) }).catch(() => null);
-    const j = r?.ok ? ((await r.json()) as { result?: T }) : null;
-    if (j?.result) return j.result;
+  // Public RPCs rate-limit bursts: try every endpoint, then back off and try again.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    for (const url of [NETWORKS[network].rpc, ...NETWORKS[network].rpcFallbacks, ...ARCHIVAL[network]]) {
+      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(15_000) }).catch(() => null);
+      const j = r?.ok ? ((await r.json().catch(() => null)) as { result?: T } | null) : null;
+      if (j?.result) return j.result;
+    }
+    await new Promise((ok) => setTimeout(ok, 2000 * (attempt + 1)));
   }
   throw new Error(`NEAR RPC ${method} failed on every endpoint`);
 }
 
-interface Found { hash: string; signer: string; method: string; ok: boolean }
+interface Found { hash: string; signer: string; method: string; ok: boolean; atMs: number }
+type IndexerTx = { transaction_hash: string; signer_account_id: string; block_timestamp: string; actions: { method?: string }[]; outcomes: { status: boolean } };
 /**
- * The contract's Keeper-related transactions, found through the indexer. Its public API returns the latest 100 and doesn't page,
- * so a token whose history is older than that is reported as incomplete rather than passed.
+ * The contract's Keeper-related transactions, found through the indexer, newest first. NearBlocks pages with the `next` token
+ * from `meta.next_page`, so read back until the token was minted. A history the indexer can't fully cover is reported as
+ * incomplete, never passed. The public API is rate-limited, so pages are spaced out and a refusal is retried.
  */
 async function findTransactions(sinceMs: number): Promise<{ found: Found[]; complete: boolean }> {
-  const r = await fetch(`${INDEXER}/v3/accounts/${contract}/txns?limit=100`, { signal: AbortSignal.timeout(30_000) });
-  const j = (await r.json()) as { data?: { transaction_hash: string; signer_account_id: string; block_timestamp: string; actions: { method?: string }[]; outcomes: { status: boolean } }[]; message?: string };
-  if (!j.data) throw new Error(`the indexer didn't answer: ${j.message ?? r.status}. Try again in a minute.`);
   const seen = new Set<string>();
   const found: Found[] = [];
-  for (const t of j.data) {
-    const method = t.actions[0]?.method ?? "";
-    if (seen.has(t.transaction_hash) || !["grant_keeper", "revoke_keeper", "keeper_sign", "keeper_payout"].includes(method)) continue;
-    seen.add(t.transaction_hash);
-    found.push({ hash: t.transaction_hash, signer: t.signer_account_id, method, ok: t.outcomes.status });
+  let next: string | undefined;
+  for (let page = 0; page < 60; page++) {
+    let j: { data?: IndexerTx[]; meta?: { next_page?: string }; message?: string } = {};
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const r = await fetch(`${INDEXER}/v3/accounts/${contract}/txns?limit=100${next ? `&next=${encodeURIComponent(next)}` : ""}`, { headers: { "user-agent": "mintent-verify-keeper" }, signal: AbortSignal.timeout(30_000) });
+      j = (await r.json().catch(() => ({}))) as typeof j;
+      if (j.data) break;
+      process.stderr.write(`  (the indexer is busy: ${String(j.message ?? r.status).slice(0, 60)}; waiting)\n`);
+      await new Promise((ok) => setTimeout(ok, 15_000 * (attempt + 1)));
+    }
+    if (!j.data) throw new Error(`the indexer didn't answer: ${j.message ?? "no data"}. Try again in a few minutes.`);
+    for (const t of j.data) {
+      const method = t.actions[0]?.method ?? "";
+      if (seen.has(t.transaction_hash) || !["grant_keeper", "revoke_keeper", "keeper_sign", "keeper_payout"].includes(method)) continue;
+      seen.add(t.transaction_hash);
+      const atMs = Number(BigInt(t.block_timestamp) / 1_000_000n);
+      // Only transactions after the token was minted can concern it.
+      if (atMs >= sinceMs) found.push({ hash: t.transaction_hash, signer: t.signer_account_id, method, ok: t.outcomes.status, atMs });
+    }
+    const oldest = Math.min(...j.data.map((t) => Number(BigInt(t.block_timestamp) / 1_000_000n)));
+    // Done once the pages reach back past the token's mint, or the indexer has nothing older.
+    if (oldest < sinceMs) return { found, complete: true };
+    if (!j.meta?.next_page || j.data.length === 0) return { found, complete: !j.meta?.next_page };
+    next = j.meta.next_page;
+    await new Promise((ok) => setTimeout(ok, 2500));
   }
-  const oldest = Math.min(...j.data.map((t) => Number(BigInt(t.block_timestamp) / 1_000_000n)));
-  return { found, complete: j.data.length < 100 || oldest < sinceMs };
+  return { found, complete: false };
 }
 
 interface Tx { args: Record<string, string | null | boolean>; blockHash: string; atMs: number; height: number }
@@ -76,8 +104,8 @@ console.log(`token ${tokenId} on ${contract}: card ${card.record.card_mint}, hel
 
 const token = (await near.callFunction({ contractId: contract, method: "nft_token", args: { token_id: tokenId } } as never)) as unknown as { metadata?: { issued_at?: string } } | null;
 const { found: all, complete } = await findTransactions(Number(token?.metadata?.issued_at ?? 0) - 60_000);
-check("the indexer covers this token's whole history", complete, complete ? "" : "older than the contract's latest 100 transactions");
-const read = await pool(all, async (f) => ({ ...f, ...(await readTransaction(f)) }));
+check("the indexer covers this token's whole history", complete, complete ? "" : "the indexer's history stopped before this token was minted");
+const read = await pool(all, async (f) => ({ ...f, ...(await readTransaction(f)) }), 3);
 const mine = read.filter((t) => t.args.token_id === tokenId);
 // Block times only for this token's transactions: they order the permission changes and check the deadline.
 await pool(mine, async (t) => {
