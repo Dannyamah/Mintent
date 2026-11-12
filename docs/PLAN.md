@@ -83,7 +83,7 @@ Own inventory, own odds, a pricing engine, Magic Eden/Tensor connectors, OutLaye
 | **Tue 10 Nov** | Web app | Privy sign-in, reveal, proof panel, transfer, sell back, withdraw, honest progress messages for slow signing. Needs your Privy app id. |
 | **Wed 11 Nov** | Mainnet prep | Mainnet treasury and nonce accounts, a paid RPC endpoint, partner key, dry-run CC mainnet `generatePack` through `assertSafePackTx` with no signing, the contract deploy **(your approval)**. |
 | **Thu 12 Nov** | **Mainnet run (your approval, about $40 outlay, D-029)** | One real $25 pull paid from SOL, handover, sell back, withdraw, recorded hashes. A spare half-day for fixes. |
-| **Fri 13 Nov** | README and video | Final README for machine readers, demo video, X post draft. Features freeze at 18:00. |
+| **Fri 13 Nov** | README | Final README for machine readers, X post draft. Features freeze at 18:00. |
 | **Sat 14 Nov** | Submit | Final clean-clone run. You make the repo public and post; I print the payload, you confirm, I submit, well before 23:59 UTC. |
 
 ### Decision points

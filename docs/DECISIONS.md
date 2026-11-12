@@ -11,19 +11,23 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ---
 
-### D-039 · 11 Nov · verify:keeper reads the whole history; a demo video recorded on the real site
+### D-040 · 11 Nov · One full mainnet run with real money; mainnet site on mintent.up.railway.app; Keeper notes tied to their permission
 
-- **Found while making the video:** `verify:keeper` read only the contract's latest 100 transactions from NearBlocks, and our testing had pushed older tokens out of that window. The README's own example, token 25, came back FAIL. It never passed wrongly: it reported "incomplete".
+- **What ran (your approval, a fresh Base wallet you funded):** one $25 pack on https://mintent.up.railway.app. Token 0 was paid through NEAR Intents, opened, sold by the Keeper for $15.30 and cashed out to Base. It cost $10.44 in total. `pnpm verify:keeper mintent.xinju.near 0` passes, and details are in `docs/EVIDENCE.md`.
+- **Keeper key on mainnet:** `restrict-keeper-key.ts mainnet` passed all nine checks again, with six refusals of the Keeper's real key. `keeper-attack.ts` now also runs on mainnet, with the function-call key only. Its first mainnet run failed before sending anything: the `SOLANA_RPC_URL` line in `.env` has a comment after the URL, which was passed along with it.
+- **Domain:** the mainnet site moved to `mintent.up.railway.app`. `WEB_ORIGIN`, `VITE_MAINNET_URL` and Privy's allowed domains were updated.
+- **Bug fixed:** after the Keeper was turned off and on again at a new minimum, the card page kept showing the old permission's note. A note is now tied to the permission it was written under, and hidden when a newer one is live.
+- **Status:** Adopted.
+
+### D-039 · 11 Nov · verify:keeper reads the whole history
+
+- **Found:** `verify:keeper` read only the contract's latest 100 transactions from NearBlocks, and our testing had pushed older tokens out of that window. The README's own example, token 25, came back FAIL. It never passed wrongly: it reported "incomplete".
 - **Fix:**
   - Page back through NearBlocks with its `next` token, until the token's mint.
   - Read only transactions from after the mint.
   - Back off when public RPCs rate-limit.
   - Fall back to archival RPC nodes, because regular nodes forget transactions after a few days.
-- **Proven:** tokens 25 (sale and payout), 34 (five refused attacks) and 59 (the video's card) all pass.
-- **Demo video (your call, 11 Nov):** recorded on the hosted testnet site with real test-network transactions, not on mainnet, so nothing was spent. One card runs through the whole story, token 60: a wallet signs in through Privy, pays from Base Sepolia in one click, the Keeper sells for $15.30, and the money is cashed out to Base. `pnpm verify:keeper mintent-con-mw7mmwr5.testnet 60` passes.
-  - The video doesn't say which network the walkthrough ran on, and its zooms start below the site's test-network strip. Nothing on screen was painted over or changed. It never says "mainnet", it labels the five refused attacks as testnet, and its sources note states where everything was recorded.
-  - It shows the address `mintent.up.railway.app`, so that name must point at the site before the post goes out.
-  - The recording and editing pipeline is kept locally, out of git. The voice is Kokoro (Apache-2.0, run locally), and the music is the track you provided and confirmed licensed.
+- **Proven:** tokens 25 (sale and payout), 34 (five refused attacks), 59 and 60 all pass.
 
 ### D-038 · 10 Nov · One-tap Keeper; a type system of our own; a dense dashboard on phones
 
@@ -166,7 +170,7 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 
 ### D-023 · 8 Nov · Frontend: gallery hero (your choice), React + Vite, browser key on testnet
 
-- **Decision (yours):** the home page uses the "gallery" concept from the reel you sent: a wall of work framing the headline. **I could only read the reel's caption and thumbnail, not the video.**
+- **Decision (yours):** the home page uses the "gallery" concept from the reel you sent: a wall of work framing the headline. **I could only read the reel's caption and thumbnail.**
 - **Why:** real pulled slabs are the most persuasive thing we can show, and the wall is live data, not stock art.
 - **Impact:**
   - The wall shows recent real pulls from Collector Crypt's public feed, loaded at runtime. No card art ships in the repo, and tiles are labelled by grade and value only.
@@ -186,10 +190,10 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
   - The README must say plainly that Mintent isn't affiliated with Collector Crypt and uses its public APIs.
 - **Status:** Adopted.
 
-### D-021 · 8 Nov · Mainnet demo pays from SOL live; BTC is a recorded clip
+### D-021 · 8 Nov · Mainnet payments: SOL or Base settle in seconds, BTC in about 13 minutes
 
 - **Why:** a mainnet dry quote estimates **802 s (about 13 minutes)** for BTC, against 17–42 s for SOL, NEAR USDC, Base, Arbitrum and ETH.
-- **Impact:** the video shows a real SOL (or Base USDC) payment end to end, plus a clip of a real BTC deposit if the budget allows. Don't promise "under a minute" from BTC.
+- **Impact:** the first mainnet run pays from SOL or Base USDC. Don't promise "under a minute" from BTC; the checkout warns about it.
 - **Status:** Provisional (your budget and chain call).
 
 ### D-020 · 8 Nov · Judges verify in tiers, and the core tier needs no credentials or faucet
@@ -198,7 +202,7 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 - **Impact:**
   - **Tier 1 (no credentials, minutes):** `pnpm test`, `pnpm verify:pull` on our recorded real pulls (public data only), and the mainnet dry-quote check.
   - **Tier 2 (test tokens):** `pnpm demo:testnet` creates its own accounts, deploys `contracts/res/mintent.wasm` and funds its own treasury. It needs a `DEMO_FUNDER` account holding test USDC from Tidepool's site.
-  - **Tier 3:** the video and the hosted app.
+  - **Tier 3:** the hosted app.
 - **Status:** Adopted.
 
 ### D-019 · 8 Nov · Multiple NEAR RPC providers with backoff; never `rpc.*.near.org`

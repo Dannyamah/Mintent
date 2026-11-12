@@ -38,7 +38,7 @@ Built at NEAR HACKATHON for these tracks:
 
 The app explains all of this for users on its [How it works](https://web-testnet-production-2eb9.up.railway.app/how-it-works) page.
 
-> **The evidence below comes from public test networks. The contract is also deployed on mainnet, and its Keeper runs on a function-call key there too.** NEAR Intents has no testnet, so the test site uses Tidepool, a community test version of the 1Click API. See [Limits](#limits).
+> **Most of the evidence below comes from public test networks. One full journey also ran on mainnet with real money (11 Nov, token 0 on `mintent.xinju.near`): paid from Base, card bought and opened, sold by the Keeper, and cashed out to Base.** NEAR Intents has no testnet, so the test site uses Tidepool, a community test version of the 1Click API. See [Limits](#limits).
 
 **Hosted:** [testnet, free](https://web-testnet-production-2eb9.up.railway.app) · [mainnet, real money](https://mintent.up.railway.app)
 
@@ -81,7 +81,7 @@ pnpm verify:keeper mintent-con-mw7mmwr5.testnet 25 # sold and paid out by the Ke
 
 ```bash
 pnpm --filter @mintent/checkout test   # 7 pass: checkout
-pnpm --filter @mintent/relayer test    # 77 pass: order pipeline, sell-back, cash-out, recovery, Keeper, card addresses
+pnpm --filter @mintent/relayer test    # 78 pass: order pipeline, sell-back, cash-out, recovery, Keeper, card addresses
 pnpm test:web                          # 19 pass: the signing check refuses tampered messages and wrong fees; Privy signer; wallet payment encoding; card addresses
 pnpm test:contracts                    # 81 unit tests + 1 sandbox run, including the attack and Keeper tests; needs Rust and cargo-near
 ```
@@ -92,6 +92,7 @@ Every step of the real runs, with transaction links, is in [docs/EVIDENCE.md](do
 
 | Claim | How to check |
 | --- | --- |
+| It works on mainnet, with real money | Token 0 on `mintent.xinju.near`: [25.74 USDC paid from Base](https://basescan.org/tx/0xf1a36f8b87fc9627fe7d3a475552d30cb5dea679e94b9c676531012b9dcfe6e3) through NEAR Intents; a CGC 10 card ($18 insured) opened; the Keeper sold it back for $15.30 with its function-call key ([`keeper_sign`](https://nearblocks.io/txns/2YhVZmezx3PvGTjtmycVsESK7i4798WpBw9dL3z9KYpy)); 15.30 USDC cashed out to Base. `pnpm verify:keeper mintent.xinju.near 0` prints ALL CHECKS PASSED |
 | The NFT controls a real card | Run `verify:pull`, or follow the [card asset](https://explorer.solana.com/address/FR2ckzK3V8TKYWBYuv5yDikcnmDHDfuKtUUwbdQrjXj5?cluster=devnet) on Solana |
 | A new owner can sell, after a NEAR-only handover | [Sell-back by the new owner](https://explorer.solana.com/tx/2d7rqzuc8sdA9dhZEntJJsTeBVJpBj5tZY11Y6rnk7GMCLxZiHijvNFKn1ZrwvJZ2bJd4GPbkxXwqg6SYegy4WJA?cluster=devnet); the proceeds landed in the NFT's own address |
 | The seller can't keep the card by signing a transfer first | We proved this attack on an unprotected contract ([tx](https://explorer.solana.com/tx/287sh1C2HuCNznxsYBYvuKtZQ1zY3uUJoazEQ4strrkgsv15VUryMYEZfdU8svr4j7p4dCVxAZkaNThp4xsRLGge?cluster=devnet)), then fixed it. The `attack_*` tests in `pnpm test:contracts` show it refused. The full threat list is in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) |

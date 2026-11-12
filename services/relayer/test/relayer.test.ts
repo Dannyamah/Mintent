@@ -5,7 +5,7 @@ import { PublicKey, TransactionInstruction, TransactionMessage, VersionedMessage
 import bs58 from "bs58";
 import { looksLikeAddress, MockBackend, quoteErrorForCustomer } from "@mintent/checkout";
 import { afterExitFee, ata, COMPUTE_BUDGET, CONFIGS, exitFee, loadConfig, MEMO_PROGRAM, MPL_CORE, realRpcError, TOKEN_PROGRAM, transferCheckedIx, withRealErrors, type CardView } from "@mintent/shared";
-import { CardOps, createKeeper, Db, isSolanaSignature, keeperShouldSell, OrderPipeline, reconcile, sponsorAmounts, type Chain, type ContractApi, type Deps } from "../src/index.ts";
+import { CardOps, createKeeper, currentKeeperStatus, Db, grantKey, isSolanaSignature, keeperShouldSell, OrderPipeline, reconcile, sponsorAmounts, type Chain, type ContractApi, type Deps } from "../src/index.ts";
 
 function keypair() {
   const { privateKey } = generateKeyPairSync("ed25519");
@@ -690,6 +690,19 @@ test("the Keeper's rule: sell only while the offer meets the minimum and the per
   assert.equal(keeperShouldSell(grant, { available: false, amountUnits: 99_000_000 }, Date.now()).sell, false);
   assert.equal(keeperShouldSell(grant, { available: true, amountUnits: 99_000_000 }, Date.now() + 2000).sell, false);
   assert.equal(keeperShouldSell(null, { available: true, amountUnits: 99_000_000 }, Date.now()).sell, false);
+});
+
+test("a Keeper status from an earlier permission is never shown as the current one", () => {
+  const db = new Db(":memory:");
+  const before = { min_price: "17300000", expires_ms: "1800000000000", hold: false, payout: "5f5TjVbkD3o4nFcrDZXmzKFSVQoBoQETNfucuhKJCF5D" };
+  db.setKeeperStatus("0", "waiting", "Waiting: the offer is $15.30, below your $17.30 minimum.", grantKey(before));
+  const status = db.keeperStatus("0");
+  assert.equal(currentKeeperStatus(status, before)?.detail, "Waiting: the offer is $15.30, below your $17.30 minimum.");
+  // The owner turns the Keeper off and on again at a new minimum: the old note must not describe the new permission.
+  assert.equal(currentKeeperStatus(status, { min_price: "15300000", expires_ms: "1800000000000", hold: false, payout: null }), null);
+  // Once the permission is gone (sold, or turned off), the last note stays readable.
+  assert.equal(currentKeeperStatus(status, null)?.detail, "Waiting: the offer is $15.30, below your $17.30 minimum.");
+  assert.equal("grant_key" in (currentKeeperStatus(status, null) ?? {}), false);
 });
 
 test("the Keeper sells for the owner: the sale is the owner's, and the Keeper pays its own gas", async () => {

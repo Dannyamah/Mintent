@@ -29,6 +29,18 @@ interface Grant {
   min_price: string;
   expires_ms: string;
   hold?: boolean;
+  payout?: string | null;
+}
+
+/** Identifies one permission's terms. A status is shown only while the permission it was written under is the live one. */
+export const grantKey = (g: Grant) => [g.min_price, g.expires_ms, g.hold ? "hold" : "now", g.payout ?? ""].join("|");
+
+/** The status to show the owner: hidden when it was written under an earlier permission than the live one. */
+export function currentKeeperStatus<S extends { grant_key: string | null }>(status: S | undefined, live: Grant | null | undefined): Omit<S, "grant_key"> | null {
+  if (!status) return null;
+  const { grant_key, ...rest } = status;
+  if (live && grant_key && grant_key !== grantKey(live)) return null;
+  return rest;
 }
 
 /** Whether the Keeper should sell now, and why. Pure, so the rule is easy to read and test. */
@@ -48,8 +60,8 @@ export function keeperShouldSell(grant: Grant | null | undefined, offer: { avail
 export function createKeeper(d: Deps & { contract: MintentContract }, ops: CardOps, agent: Account) {
   const failedAt = new Map<string, number>();
   let running = false;
-  const note = (tokenId: string, decision: KeeperDecision): KeeperDecision => {
-    d.db.setKeeperStatus(tokenId, decision.action, decision.detail);
+  const note = (tokenId: string, decision: KeeperDecision, grant: Grant): KeeperDecision => {
+    d.db.setKeeperStatus(tokenId, decision.action, decision.detail, grantKey(grant));
     return decision;
   };
 
@@ -57,7 +69,7 @@ export function createKeeper(d: Deps & { contract: MintentContract }, ops: CardO
     const view = await d.contract.getCard(tokenId);
     const grant = view?.keeper;
     if (!view || grant?.agent !== agent.accountId) return { tokenId, action: "skipped", detail: "not ours" };
-    if (Date.now() >= Number(grant.expires_ms)) return note(tokenId, { tokenId, action: "skipped", detail: "Your permission has ended." });
+    if (Date.now() >= Number(grant.expires_ms)) return note(tokenId, { tokenId, action: "skipped", detail: "Your permission has ended." }, grant);
     if (Date.now() - (failedAt.get(tokenId) ?? 0) < RETRY_AFTER_FAILURE_MS) return { tokenId, action: "waiting", detail: "recent failure" };
     if (d.db.activeOps().some((o) => o.token_id === tokenId)) return { tokenId, action: "waiting", detail: "another action is in progress" };
 
@@ -65,31 +77,31 @@ export function createKeeper(d: Deps & { contract: MintentContract }, ops: CardO
       if (view.record.status === "Opened" && view.record.card_mint) {
         const offer = await d.cc.buybackAvailable(view.record.card_mint).catch(() => null);
         const decision = keeperShouldSell(grant, offer, Date.now());
-        if (!decision.sell) return note(tokenId, { tokenId, action: "waiting", detail: decision.why });
-        note(tokenId, { tokenId, action: "waiting", detail: decision.why });
+        if (!decision.sell) return note(tokenId, { tokenId, action: "waiting", detail: decision.why }, grant);
+        note(tokenId, { tokenId, action: "waiting", detail: decision.why }, grant);
         const op = await ops.prepareKeeperSellback(tokenId, agent.accountId);
         const sig = await d.contract.keeperSign(agent, tokenId, Buffer.from(op.message_hex, "hex"));
         const done = await ops.finalize(op.id, Buffer.from(sig).toString("hex"));
         d.log(`keeper sold token ${tokenId} for its owner ${view.owner_id}: ${done.tx_sig}`);
-        return note(tokenId, { tokenId, action: "sold", detail: `Sold back for $${(Number(JSON.parse(op.detail).price) / 1e6).toFixed(2)}.${grant.payout ? " Paying you out next." : ""}` });
+        return note(tokenId, { tokenId, action: "sold", detail: `Sold back for $${(Number(JSON.parse(op.detail).price) / 1e6).toFixed(2)}.${grant.payout ? " Paying you out next." : ""}` }, grant);
       }
 
       if (view.record.status === "Released" && grant.payout) {
         const card = await d.chain.cardAddress(tokenId);
         const held = await d.chain.tokenBalance(card, d.config.ccPaymentMint);
-        if (!afterExitFee(held)) return note(tokenId, { tokenId, action: "skipped", detail: held > 0n ? "Too little USDC to cover the fee." : "Nothing left to pay out." });
+        if (!afterExitFee(held)) return note(tokenId, { tokenId, action: "skipped", detail: held > 0n ? "Too little USDC to cover the fee." : "Nothing left to pay out." }, grant);
         const op = await ops.prepareKeeperPayout(tokenId, agent.accountId);
         const sig = await d.contract.keeperPayout(agent, tokenId, Buffer.from(op.message_hex, "hex"));
         const done = await ops.finalize(op.id, Buffer.from(sig).toString("hex"));
         const net = Number(JSON.parse(op.detail).net) / 1e6;
         d.log(`keeper paid out token ${tokenId} to ${grant.payout}: ${done.tx_sig}`);
-        return note(tokenId, { tokenId, action: "paid", detail: `Sent you $${net.toFixed(2)} USDC on Solana.` });
+        return note(tokenId, { tokenId, action: "paid", detail: `Sent you $${net.toFixed(2)} USDC on Solana.` }, grant);
       }
       return { tokenId, action: "skipped", detail: view.record.status };
     } catch (e) {
       failedAt.set(tokenId, Date.now());
       d.log(`keeper: token ${tokenId}: ${e instanceof Error ? e.message : e}`);
-      return note(tokenId, { tokenId, action: "waiting", detail: "Something failed. I'll try again in 10 minutes." });
+      return note(tokenId, { tokenId, action: "waiting", detail: "Something failed. I'll try again in 10 minutes." }, grant);
     }
   }
 

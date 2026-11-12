@@ -14,5 +14,3 @@ scripts/.spike-*.json
 *.sqlite*
 deploy/.railway/
 
-# Demo video pipeline: local only
-apps/web/e2e/demo/

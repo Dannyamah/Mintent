@@ -87,6 +87,10 @@ export class Db {
       );
     `);
     this.db.exec("CREATE TABLE IF NOT EXISTS keeper_status (token_id TEXT PRIMARY KEY, action TEXT NOT NULL, detail TEXT NOT NULL, at INTEGER NOT NULL)");
+    // Which permission a status was written under, so a status from an earlier permission is never shown as the current one.
+    if (!(this.db.prepare("PRAGMA table_info(keeper_status)").all() as unknown as { name: string }[]).some((c) => c.name === "grant_key")) {
+      this.db.exec("ALTER TABLE keeper_status ADD COLUMN grant_key TEXT");
+    }
     this.db.exec("CREATE TABLE IF NOT EXISTS test_pays (order_id TEXT PRIMARY KEY, buyer TEXT NOT NULL, visitor TEXT NOT NULL, at INTEGER NOT NULL)");
     // Databases made before cash-outs existed.
     const columns = (this.db.prepare("PRAGMA table_info(ops)").all() as unknown as { name: string }[]).map((c) => c.name);
@@ -126,12 +130,12 @@ export class Db {
   }
 
   /** What the Keeper last decided about a token, for its owner to read. */
-  setKeeperStatus(tokenId: string, action: string, detail: string): void {
-    this.db.prepare("INSERT INTO keeper_status (token_id, action, detail, at) VALUES (?,?,?,?) ON CONFLICT(token_id) DO UPDATE SET action = excluded.action, detail = excluded.detail, at = excluded.at").run(tokenId, action, detail, Date.now());
+  setKeeperStatus(tokenId: string, action: string, detail: string, grantKey: string | null = null): void {
+    this.db.prepare("INSERT INTO keeper_status (token_id, action, detail, at, grant_key) VALUES (?,?,?,?,?) ON CONFLICT(token_id) DO UPDATE SET action = excluded.action, detail = excluded.detail, at = excluded.at, grant_key = excluded.grant_key").run(tokenId, action, detail, Date.now(), grantKey);
   }
 
-  keeperStatus(tokenId: string): { action: string; detail: string; at: number } | undefined {
-    return this.db.prepare("SELECT action, detail, at FROM keeper_status WHERE token_id = ?").get(tokenId) as unknown as { action: string; detail: string; at: number } | undefined;
+  keeperStatus(tokenId: string): { action: string; detail: string; at: number; grant_key: string | null } | undefined {
+    return this.db.prepare("SELECT action, detail, at, grant_key FROM keeper_status WHERE token_id = ?").get(tokenId) as unknown as { action: string; detail: string; at: number; grant_key: string | null } | undefined;
   }
 
   /** Free test payments since `since`: by this visitor, by this account, and by everyone. */

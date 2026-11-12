@@ -17,7 +17,7 @@ import { CardOps } from "./ops.js";
 import { OrderPipeline } from "./orders.js";
 import { reconcile } from "./reconcile.js";
 import { createRuntime } from "./runtime.js";
-import { createKeeper } from "./keeper.js";
+import { createKeeper, currentKeeperStatus } from "./keeper.js";
 import { createCardIndex } from "./card-index.js";
 import { createTestnetUpkeep, testPayLimits, testPayRefusal } from "./testnet-upkeep.js";
 
@@ -116,7 +116,7 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
       thumb: mint ? d.cc.imageUrl(mint, 320) : null,
       offer: offer?.available ? { amountUnits: offer.amountUnits, expiresAt: offer.expiresAt } : null,
       mintedAt: order?.created_at ?? null,
-      keeperStatus: d.db.keeperStatus(tokenId) ?? null,
+      keeperStatus: currentKeeperStatus(d.db.keeperStatus(tokenId), card.keeper),
       links: await cards.links(tokenId, Boolean(mint)),
     };
   };

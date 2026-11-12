@@ -1,17 +1,26 @@
-// Testnet: the Keeper, with its real key and a real permission, tries to go beyond it. Each attempt is a real NEAR transaction,
+// The Keeper, with its real key and a real permission, tries to go beyond it. Each attempt is a real NEAR transaction,
 // and the contract must refuse it. Prints the transaction hashes so anyone can look them up.
-// Usage: tsx src/keeper-attack.ts <token-id>   (uses scripts/.demo-state.json and ~/.near-credentials/testnet/keeper.<dev>.json)
+// Usage: tsx src/keeper-attack.ts <token-id> [testnet|mainnet]
+//   testnet: scripts/.demo-state.json and ~/.near-credentials/testnet/keeper.<dev>.json
+//   mainnet: mintent.xinju.near, and the Keeper's function-call key (the key the hosted relayer holds), never its full-access key
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { readFileSync } from "node:fs";
-import { ata, authorizeAndPayIx, CcClient, CONFIGS, coreTransferIx, createAtaIdempotentIx, loadAccount, setComputeUnitLimitIx, transferCheckedIx } from "@mintent/shared";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { Account, KeyPairSigner } from "near-api-js";
+import { nearProvider, ata, authorizeAndPayIx, CcClient, CONFIGS, coreTransferIx, createAtaIdempotentIx, loadAccount, setComputeUnitLimitIx, transferCheckedIx } from "@mintent/shared";
 import { createRuntime } from "@mintent/relayer";
 
-const [tokenId] = process.argv.slice(2);
-if (!tokenId) throw new Error("usage: keeper-attack <token-id>");
-const cfg = CONFIGS.testnet;
-const state = JSON.parse(readFileSync(new URL("../.demo-state.json", import.meta.url), "utf8")) as { contract: string; relayer: string };
-const d = await createRuntime({ contractId: state.contract, relayer: loadAccount("testnet", state.relayer), config: cfg, log: () => undefined });
-const keeper = loadAccount("testnet", "keeper.mintent-dev-mw21w9ki.testnet");
+const [tokenId, network = "testnet"] = process.argv.slice(2);
+if (!tokenId || (network !== "testnet" && network !== "mainnet")) throw new Error("usage: keeper-attack <token-id> [testnet|mainnet]");
+const cfg = { ...CONFIGS[network], ...(network === "mainnet" && process.env.SOLANA_RPC_URL ? { solanaRpc: process.env.SOLANA_RPC_URL } : {}) };
+const state = network === "mainnet"
+  ? { contract: "mintent.xinju.near", relayer: "relayer.xinju.near" }
+  : (JSON.parse(readFileSync(new URL("../.demo-state.json", import.meta.url), "utf8")) as { contract: string; relayer: string });
+const d = await createRuntime({ contractId: state.contract, relayer: loadAccount(network, state.relayer), config: cfg, log: () => undefined });
+const keeperId = network === "mainnet" ? "keeper.xinju.near" : "keeper.mintent-dev-mw21w9ki.testnet";
+const fcKey = JSON.parse(readFileSync(join(homedir(), ".near-credentials", network, `${keeperId}.function-call.json`), "utf8")) as { private_key: Parameters<typeof KeyPairSigner.fromSecretKey>[0] };
+const keeper = new Account(keeperId, nearProvider(network), KeyPairSigner.fromSecretKey(fcKey.private_key));
 const cc = new CcClient(cfg.ccGacha, cfg.ccApi);
 
 const view = await d.contract.getCard(tokenId);

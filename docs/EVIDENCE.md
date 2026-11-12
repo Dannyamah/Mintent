@@ -189,15 +189,26 @@ The mainnet contract was upgraded so the Keeper's methods need no deposit ([tx](
 
 **A bug found on the way.** Two of those checks first failed with "Not enough balance": NEAR reserves a call's gas up front at a worst-case price, and 100 TGas needed 0.1009 NEAR, more than the Keeper's 0.0999. So on mainnet the Keeper could never have made a single call, with either key. A real Keeper call burns about 16 TGas, so it now reserves 50 TGas. On testnet, with 50 TGas, token 34 was sold ([NEAR](https://testnet.nearblocks.io/txns/7GG2WtadCX8bjVx6YFYeeGLaq4ev5AXeNp3YSXwkp8Gc), 15.9 TGas burnt) and paid out ([NEAR](https://testnet.nearblocks.io/txns/7hGPZ6isMwh44rSf5dSxpTPCjtzLjYbvxK4qNmPRHugo), 13.7 TGas burnt), both signed by the function-call key, and `keeper.mjs` passed all 14 checks. `pnpm verify:keeper mintent-con-mw7mmwr5.testnet 34` passes.
 
+## Mainnet: one full journey with real money, 11 Nov
+
+Run on https://mintent.up.railway.app, with a fresh Base wallet the owner funded (`0x0D4583651B2DB2b79961e203Ddc73C22892C4fE5`). One card, token 0 on `mintent.xinju.near`, from payment to cash-out:
+
+- **Sign-in:** the wallet signed in through Privy on the mainnet site, giving the NEAR account `d99fded079…0553cd5128`.
+- **Payment through NEAR Intents:** the $25 pack plus Mintent's 1% fee was quoted at 25.735227 USDC on Base and paid in one click ([Base tx](https://basescan.org/tx/0xf1a36f8b87fc9627fe7d3a475552d30cb5dea679e94b9c676531012b9dcfe6e3)). 1Click delivered 25.25 USDC to the treasury on Solana in about two minutes.
+- **The card:** a CGC 10 card, $18 insured value. Its NFT's Solana address, derived from `card/0`, is `6SWXPgQKmfyQ1pqjdWzhuFG3dPq6Q3MSnYmsBRgwznxj`, and the card page showed "Who holds the card: This NFT".
+- **The Keeper:** first turned on at $17.30, above Collector Crypt's $15.30 offer, it waited and said why. Turned off, then on again at the offer, it sold the card back for $15.30, signed with its function-call key ([`keeper_sign`](https://nearblocks.io/txns/2YhVZmezx3PvGTjtmycVsESK7i4798WpBw9dL3z9KYpy)). `pnpm verify:keeper mintent.xinju.near 0` prints ALL CHECKS PASSED.
+- **Cash-out:** 15.30 USDC went from the NFT's own address back to the same wallet on Base, through NEAR Intents. The wallet went from 26.99 to 16.55 USDC, so the whole run cost $10.44.
+- **The Keeper's key, attacked on mainnet:** `restrict-keeper-key.ts mainnet` passed all nine checks again. NEAR refused sending NEAR, adding a full-access key, `nft_transfer`, `sign_for_card` and calling another contract, and the contract refused a Keeper call on a token with no permission.
+- **A bug found on the way:** after the Keeper was turned off and on again at a new minimum, the card page kept showing the old permission's note ("below your $17.30 minimum") until the Keeper's next decision. A status is now tied to the permission it was written under, and is hidden when a newer permission is live (relayer test "a Keeper status from an earlier permission is never shown as the current one").
+
 ## What has not been shown
 
-- **The Keeper on mainnet.** The mainnet contract has Keeper v2 (upgraded 9 Nov), and `keeper.xinju.near` exists, but no mainnet sale or payout has run. It now runs on a function-call key, which passed its on-chain checks.
-- **One-click payment with a real extension, or on mainnet.** It ran with an injected test wallet on Base Sepolia.
+- **A Keeper payout to a Solana wallet on mainnet.** The mainnet sale ran with the money kept in the NFT; the payout path has run on testnet only.
+- **One-click payment with a real extension.** On testnet and on mainnet it ran with an injected wallet.
 
-- **No mainnet run.** The contract is deployed at `mintent.xinju.near`, but holds no tokens yet. One real, unsigned $25 mainnet purchase transaction passed `assertSafePackTx` on 9 Nov (`scripts/src/mainnet-pack-check.ts`), with nothing signed or sent. No purchase, sell-back or cash-out has run on mainnet.
 - **Payment on testnet is not spent on the pack.** Tidepool's test USDC isn't the token Collector Crypt's devnet charges, so the treasury pays from pre-stocked USDC-Dev. On mainnet, both are real USDC.
-- **Sell-back timing on mainnet.** Devnet offered a 30-day window, Collector Crypt's docs say 72 hours, and 8 of 8 recent mainnet pulls returned `available: false` in a read-only check on 8 Nov. The cause is unknown; those cards may already have been sold or withdrawn.
-- **Any-chain payment and cash-out with real money.** On test networks, payment ran from Base and NEAR, and cash-outs to NEAR and Base. Other chains have been quoted only. The mainnet cash-out, where the NFT's address pays the deposit directly, has only been unit-tested: on testnet the treasury funds the deposit, because sell-back money there is a token Tidepool doesn't accept.
+- **Sell-back timing on mainnet.** Collector Crypt's docs say the offer lasts 72 hours, and token 0's offer showed "Ends in 2d 23h" right after opening, which matches. Earlier, 8 of 8 other recent mainnet pulls returned `available: false` in a read-only check on 8 Nov, probably because those cards had already been sold or withdrawn.
+- **Any-chain payment and cash-out with real money, beyond Base.** On mainnet, payment and cash-out ran on Base, with the NFT's own address paying the cash-out deposit. On test networks, payment also ran from NEAR, and cash-out to NEAR. Other chains have been quoted only.
 - **A real wallet extension.** Wallet sign-in used an injected test wallet. Phantom and other Solana wallets aren't tested, and need Solana wallet login turned on in the Privy dashboard.
-- **Privy on mainnet.** Privy has only run on testnet. Its key export window opens, but the screen showing the key itself hasn't been checked.
+- **Privy key export.** Wallet sign-in through Privy ran on mainnet. Its key export window opens, but the screen showing the key itself hasn't been checked.
 - **Redemption of a physical card** is untested. The path is to withdraw the card to your own Solana wallet, then redeem on Collector Crypt's site as any holder can.
