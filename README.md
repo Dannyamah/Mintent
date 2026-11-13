@@ -68,16 +68,18 @@ Needs Node 22.22 or newer and pnpm.
 pnpm install
 pnpm verify:pull mintent-con-mw7mmwr5.testnet 0   # sold back by its new owner
 pnpm verify:pull mintent-con-mw7mmwr5.testnet 1   # withdrawn to the owner's own wallet
-pnpm verify:keeper mintent-con-mw7mmwr5.testnet 25 # sold and paid out by the Keeper, inside the owner's permission
+pnpm verify:keeper mintent.xinju.near 0          # mainnet, real money: sold by the Keeper, inside the owner's permission
 ```
 
-**You should see** `ALL CHECKS PASSED` for each. These commands read only public data from NEAR RPC, Solana RPC and Collector Crypt's verifier, and trust nothing from our servers. They check that:
+**You should see** `ALL CHECKS PASSED` for each, in under a minute. These commands read only public data from NEAR RPC, Solana RPC and Collector Crypt's verifier, and trust nothing from our servers. They check that:
 
 - the NFT's owner matches the card record
 - the card's address derives from the contract through the NEAR MPC network
 - the card is where NEAR says it is on Solana
 - the pack's random draw has a valid VRF proof
 - for `verify:keeper`: every Keeper action was inside a live permission, for the right card, at or above the minimum, paid where the owner chose with exactly Mintent's fee, and landed on Solana. NearBlocks is used only to find the transactions.
+
+`pnpm verify:keeper mintent-con-mw7mmwr5.testnet 25` checks a testnet sale that was also paid out to the owner's wallet, with five refused attacks. It takes a few minutes, because it reads older history from archival NEAR nodes.
 
 ```bash
 pnpm --filter @mintent/checkout test   # 7 pass: checkout
@@ -182,14 +184,14 @@ node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 
 ## Disclosures
 
-- **Pre-hackathon code:** none. The first commit is dated 4 Nov 2026, inside the 1–14 Nov build window, and no template was used.
+- **Pre-hackathon code:** none. The first commit is dated 4 Nov 2026, after the hackathon's announcement on 19 Oct (rule Q-001), and no template was used. This is our only NEAR HACKATHON project.
 - **Independent project:** not affiliated with Collector Crypt. It uses only their public, keyless APIs. Card images and names shown in the app belong to their respective owners.
 - **Age and risk:** random packs aren't for everyone. The app requires an 18+ confirmation, and shows odds and sell-back terms before payment.
 - **Libraries:**
-  - Contract: `near-sdk`, `near-contract-standards`, `near-workspaces`
-  - TypeScript: `near-api-js`, `@solana/web3.js`, `bs58`, `@defuse-protocol/one-click-sdk-typescript`
-  - Web: `react`, `vite`, `motion`, `lucide-react`, `uqr`, `@privy-io/react-auth`, `@solana/kit`, `@solana-program/memo`, `@solana-program/system`, `@solana-program/token`
-  - Tests: `playwright-core`, `viem`
+  - Contract: `near-sdk`, `near-contract-standards`, `hex`; tests: `near-workspaces`, `tokio`, `serde_json`, `anyhow`
+  - TypeScript: `near-api-js`, `@solana/web3.js`, `bs58`, `@defuse-protocol/one-click-sdk-typescript`, `dotenv`
+  - Web: `react`, `react-dom`, `vite`, `@vitejs/plugin-react`, `motion`, `lucide-react`, `uqr`, `@privy-io/react-auth`, `@solana/kit`, `@solana-program/memo`, `@solana-program/system`, `@solana-program/token`
+  - Tests and tooling: `playwright-core`, `viem`, `tsx`, `typescript`
 - **AI coding assistant:** Claude Code (Anthropic) was used throughout the build. It wrote most of the code, tests and docs, and ran the test transactions, at the team's direction. The team chose the product and approved every mainnet transaction, and those decisions are logged in [docs/DECISIONS.md](docs/DECISIONS.md). AI-written code is allowed by the hackathon's rule Q-005.
 - **Services:** NEAR Chain Signatures, NEAR Intents 1Click, Tidepool (community testnet of 1Click), Collector Crypt, Privy, public NEAR and Solana RPCs.
 

@@ -25,10 +25,15 @@ const ARCHIVAL: Record<NearNetwork, string[]> = {
   mainnet: ["https://archival-rpc.mainnet.fastnear.com", "https://archival-rpc.mainnet.near.org"],
 };
 
-async function rpc<T>(method: string, params: unknown): Promise<T> {
+// Regular nodes keep about a day of history, so anything older goes to the archival nodes first instead of failing on
+// every regular node before reaching them.
+const OLD_MS = 20 * 60 * 60_000;
+async function rpc<T>(method: string, params: unknown, archivalFirst = false): Promise<T> {
   // Public RPCs rate-limit bursts: try every endpoint, then back off and try again.
+  const regular = [NETWORKS[network].rpc, ...NETWORKS[network].rpcFallbacks];
+  const urls = archivalFirst ? [...ARCHIVAL[network], ...regular] : [...regular, ...ARCHIVAL[network]];
   for (let attempt = 0; attempt < 5; attempt++) {
-    for (const url of [NETWORKS[network].rpc, ...NETWORKS[network].rpcFallbacks, ...ARCHIVAL[network]]) {
+    for (const url of urls) {
       const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(15_000) }).catch(() => null);
       const j = r?.ok ? ((await r.json().catch(() => null)) as { result?: T } | null) : null;
       if (j?.result) return j.result;
@@ -79,7 +84,7 @@ async function findTransactions(sinceMs: number): Promise<{ found: Found[]; comp
 
 interface Tx { args: Record<string, string | null | boolean>; blockHash: string; atMs: number; height: number }
 async function readTransaction(f: Found): Promise<Tx> {
-  const t = await rpc<{ transaction: { actions: { FunctionCall: { args: string } }[] }; transaction_outcome: { block_hash: string } }>("tx", { tx_hash: f.hash, sender_account_id: f.signer, wait_until: "FINAL" });
+  const t = await rpc<{ transaction: { actions: { FunctionCall: { args: string } }[] }; transaction_outcome: { block_hash: string } }>("tx", { tx_hash: f.hash, sender_account_id: f.signer, wait_until: "FINAL" }, Date.now() - f.atMs > OLD_MS);
   return { args: JSON.parse(Buffer.from(t.transaction.actions[0].FunctionCall.args, "base64").toString()), blockHash: t.transaction_outcome.block_hash, atMs: 0, height: 0 };
 }
 
@@ -109,7 +114,7 @@ const read = await pool(all, async (f) => ({ ...f, ...(await readTransaction(f))
 const mine = read.filter((t) => t.args.token_id === tokenId);
 // Block times only for this token's transactions: they order the permission changes and check the deadline.
 await pool(mine, async (t) => {
-  const block = await rpc<{ header: { timestamp: number; height: number } }>("block", { block_id: t.blockHash });
+  const block = await rpc<{ header: { timestamp: number; height: number } }>("block", { block_id: t.blockHash }, Date.now() - t.atMs > OLD_MS);
   t.atMs = Math.floor(block.header.timestamp / 1e6);
   t.height = block.header.height;
 });
