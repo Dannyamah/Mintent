@@ -147,6 +147,9 @@ The same test then ran against the **hosted** testnet site and relayer on Railwa
 
 ## Keeper v2, live on testnet, 9 Nov
 
+<img src="screenshots/keeper.jpg" alt="The Keeper on a testnet card, showing its reasoning: waiting, the offer is below the owner's minimum" width="640"><br>
+<sub>What the owner sees while the Keeper is on: its reasoning, its progress, and the rule it follows. Testnet, 13 Nov.</sub>
+
 `apps/web/e2e/keeper.mjs` again, through the real app on real test networks: 14 checks in 4.3 minutes, on token 25 (a $22.10 offer). The owner's payout address was a fresh one, `G8G8378cr4vcAGx5LE5DW8XBqyHxKibgiqd9DhPbRYDq`.
 
 | The Keeper, with its real key, tried to | Contract's answer | Transaction |
@@ -200,6 +203,13 @@ Run on https://mintent.up.railway.app, with a fresh Base wallet the owner funded
 - **Cash-out:** 15.30 USDC went from the NFT's own address back to the same wallet on Base, through NEAR Intents. The wallet went from 26.99 to 16.55 USDC, so the whole run cost $10.44.
 - **The Keeper's key, attacked on mainnet:** `restrict-keeper-key.ts mainnet` passed all nine checks again. NEAR refused sending NEAR, adding a full-access key, `nft_transfer`, `sign_for_card` and calling another contract, and the contract refused a Keeper call on a token with no permission.
 - **A bug found on the way:** after the Keeper was turned off and on again at a new minimum, the card page kept showing the old permission's note ("below your $17.30 minimum") until the Keeper's next decision. A status is now tied to the permission it was written under, and is hidden when a newer permission is live (relayer test "a Keeper status from an earlier permission is never shown as the current one").
+
+<table>
+  <tr>
+    <td width="62%" valign="top"><img src="screenshots/card.jpg" alt="Token 0's card page on mainnet: the CGC 10 card and the Check it yourself panel"><br><sub>Token 0 on mainnet: the NFT's owner on NEAR, its Solana address from Chain Signatures (<code>mintent.xinju.near</code> + <code>card/0</code>), and "Left this NFT" after the Keeper's sale.</sub></td>
+    <td width="38%" valign="top"><img src="screenshots/mainnet-activity.jpg" alt="Mainnet dashboard activity: cashed out $15.30 to USDC on Base, Keeper sold back for $15.30, opened the card"><br><sub>The same account's activity on mainnet: opened, sold back by the Keeper for $15.30, cashed out to Base.</sub></td>
+  </tr>
+</table>
 
 ## What has not been shown
 

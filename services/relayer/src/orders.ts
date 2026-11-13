@@ -2,7 +2,7 @@
 // Every step is idempotent and its progress is persisted, so a crash at any point resumes safely.
 import { PublicKey, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
-import { assertSafePackTx, isStandardCardPack, verifyEd25519 } from "@mintent/shared";
+import { assertSafePackTx, canFillEveryDraw, isStandardCardPack, verifyEd25519 } from "@mintent/shared";
 import { looksLikeAddress, quoteErrorForCustomer, verifySettlement, withServiceFee, type CheckoutQuote } from "@mintent/checkout";
 import type { Order } from "./db.js";
 import type { Deps } from "./deps.js";
@@ -58,6 +58,8 @@ export class OrderPipeline {
       throw Object.assign(new Error(`That doesn't look like a ${payWith.blockchain} address. Refunds go back to this address, so please check it.`), { status: 400 });
     }
     const machine = await cc.machine(input.packType);
+    // Collector Crypt can't fill a draw from an empty tier, and would refuse the pack after payment.
+    if (!canFillEveryDraw(machine)) throw Object.assign(new Error("This pack is sold out right now. You haven't been charged. Please choose another pack."), { status: 409 });
     const price = BigInt(Math.round(machine.price)) * USDC_DECIMALS;
     const amountOut = withServiceFee(price, config.serviceFeeBps);
     const quote = await checkout.quote({

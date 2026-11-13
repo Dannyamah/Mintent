@@ -6,6 +6,17 @@ export interface CcMachine {
   instantBuyback: number;
   ev: number | null;
   odds: Record<string, number>;
+  /** Cards left per rarity tier, when Collector Crypt reports it. */
+  stock?: Record<string, number>;
+}
+
+/**
+ * Whether a machine can fill any draw: every tier the odds can land on still has a card. Collector Crypt refuses a pack
+ * whose drawn tier is empty ("Machine is empty") after it was paid for, so such a pack must not be offered or sold.
+ */
+export function canFillEveryDraw(m: Pick<CcMachine, "odds" | "stock">): boolean {
+  if (!m.stock) return true;
+  return Object.entries(m.odds ?? {}).every(([tier, p]) => !(p > 0) || (m.stock![tier] ?? 0) > 0);
 }
 
 export interface BuybackQuote {

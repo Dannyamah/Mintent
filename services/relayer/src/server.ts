@@ -6,7 +6,7 @@ import { KeyPair, type KeyPairString } from "near-api-js";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { accountFromKey, cardCode, CONFIGS, isStandardCardPack, loadAccount, loadConfig, nearProvider, NETWORKS, packSlug, type RecentPull } from "@mintent/shared";
+import { accountFromKey, canFillEveryDraw, cardCode, CONFIGS, isStandardCardPack, loadAccount, loadConfig, nearProvider, NETWORKS, packSlug, type RecentPull } from "@mintent/shared";
 
 /** A private key from ~/.near-credentials/<network>/<name>.json, or null. */
 const keyFile = (network: string, name: string): string | null => {
@@ -135,7 +135,7 @@ export async function startServer(port = Number(process.env.PORT || 8787)) {
       const best = new Map<number, Awaited<ReturnType<typeof d.cc.machines>>[number]>();
       const score = (m: { code: string; ev: number | null }) => (m.code.startsWith("pokemon_") ? 1e9 : 0) + (m.ev ?? 0);
       for (const m of await d.cc.machines()) {
-        if (!isStandardCardPack(m.code) || !m.ev || !m.price || m.price % 1 !== 0) continue;
+        if (!isStandardCardPack(m.code) || !m.ev || !m.price || m.price % 1 !== 0 || !canFillEveryDraw(m)) continue;
         const cur = best.get(m.price);
         if (!cur || score(m) > score(cur)) best.set(m.price, m);
       }

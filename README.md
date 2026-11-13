@@ -42,6 +42,17 @@ The app explains all of this for users on its [How it works](https://web-testnet
 
 **Hosted:** [testnet, free](https://web-testnet-production-2eb9.up.railway.app) · [mainnet, real money](https://mintent.up.railway.app)
 
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="docs/screenshots/quote.jpg" alt="Checkout showing a NEAR Intents quote: send exactly 25.517868 USDC on Base to a deposit address"><br><sub><b>Pay from any chain.</b> A NEAR Intents (1Click) quote for a $25 pack, paid with USDC on Base. Mainnet.</sub></td>
+    <td width="50%" valign="top"><img src="docs/screenshots/card.jpg" alt="Card page with the Check it yourself panel: NFT owner on NEAR, the NFT's Solana address from Chain Signatures, and who holds the card"><br><sub><b>The NFT holds the card.</b> Its own Solana address, derived through Chain Signatures from <code>mintent.xinju.near</code> and <code>card/0</code>. Mainnet token 0, since sold back by the Keeper.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="docs/screenshots/keeper.jpg" alt="Card page with the Keeper on, showing its reasoning: waiting, the offer is below the owner's minimum"><br><sub><b>The Keeper.</b> On in one tap, with its reasoning on screen. The contract limits what it can sign. Testnet.</sub></td>
+    <td width="50%" valign="top"><img src="docs/screenshots/dashboard.jpg" alt="Dashboard: vault value, USDC to withdraw, sell-back offers, Keeper status, cards and activity"><br><sub><b>Dashboard.</b> Vault value, sell-back offers, the Keeper's status and activity. Testnet.</sub></td>
+  </tr>
+</table>
+
 ## Try it in a browser, in 5 minutes, with nothing to install
 
 On the [testnet site](https://web-testnet-production-2eb9.up.railway.app):
@@ -49,7 +60,7 @@ On the [testnet site](https://web-testnet-production-2eb9.up.railway.app):
 | Do | You should see |
 | --- | --- |
 | Choose **Sign in**, then **Create my test account** | Your new NEAR account in the top right. No email or wallet needed. |
-| Scroll to the packs, choose **Open a $25 pack**, tick the 18+ box, then **Get payment details** | A deposit address and the exact amount, from a 1Click quote |
+| Scroll to the packs, choose **Open** on the first pack, tick the 18+ box, then **Get payment details** | A deposit address and the exact amount, from a 1Click quote |
 | Choose **Pay with test USDC** | The steps tick through: payment proven, NFT minted, pack bought, the draw. Takes 2–4 minutes. |
 | Choose **Tear open your pack** | A real graded card from Collector Crypt's devnet, owned by your NFT |
 | Choose **Your dashboard**, then come back to the pack another time | Leave mid-order and the dashboard shows it on its way, then offers **Open it**. Nothing names the card until you do. |

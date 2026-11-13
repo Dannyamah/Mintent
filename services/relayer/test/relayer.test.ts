@@ -5,6 +5,7 @@ import { PublicKey, TransactionInstruction, TransactionMessage, VersionedMessage
 import bs58 from "bs58";
 import { looksLikeAddress, MockBackend, quoteErrorForCustomer } from "@mintent/checkout";
 import { afterExitFee, ata, COMPUTE_BUDGET, CONFIGS, exitFee, loadConfig, MEMO_PROGRAM, MPL_CORE, realRpcError, TOKEN_PROGRAM, transferCheckedIx, withRealErrors, type CardView } from "@mintent/shared";
+import { canFillEveryDraw } from "@mintent/shared";
 import { CardOps, createKeeper, currentKeeperStatus, Db, grantKey, isSolanaSignature, keeperShouldSell, OrderPipeline, reconcile, sponsorAmounts, type Chain, type ContractApi, type Deps } from "../src/index.ts";
 
 function keypair() {
@@ -346,6 +347,24 @@ test("a reported hash is still used first", async () => {
   const { p, id } = await paidOrder(w);
   const o = await runUntilSettled(p, id);
   assert.match(o.settle_tx ?? "", /^mock-dest-/);
+});
+
+test("a pack whose drawn tier could be empty is neither offered nor sold, so nobody pays for a pack that can't be filled", async () => {
+  // Collector Crypt's devnet $25 machine on 13 Nov: no commons left, and 75% of draws are commons.
+  const empty = { odds: { common: 0.75, uncommon: 0.2, rare: 0.04, epic: 0.01 }, stock: { common: 0, uncommon: 845, rare: 3689, epic: 487 } };
+  assert.equal(canFillEveryDraw(empty), false);
+  assert.equal(canFillEveryDraw({ ...empty, stock: { ...empty.stock, common: 1 } }), true);
+  assert.equal(canFillEveryDraw({ odds: { common: 1, epic: 0 }, stock: { common: 3, epic: 0 } }), true, "a tier the odds never land on doesn't matter");
+  assert.equal(canFillEveryDraw({ odds: { common: 1 } }), true, "no stock reported: don't block");
+  const cc = w.deps.cc as { machine: unknown };
+  const before = cc.machine;
+  cc.machine = async () => ({ code: "pokemon_25", name: "n", price: 25, instantBuyback: 85, ev: 27, ...empty });
+  try {
+    await assert.rejects(new OrderPipeline(w.deps).createOrder({ buyer: "alice", packType: "pokemon_25", originAsset: "mock:usdc", refundTo: "alice" }), { status: 409 });
+    assert.equal(w.deps.db.orders().length, 0);
+  } finally {
+    cc.machine = before;
+  }
 });
 
 test("no new orders when the treasury can't pay Solana fees, so nobody pays into a stall", async () => {
