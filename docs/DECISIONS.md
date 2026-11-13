@@ -7,7 +7,7 @@ This log records only decisions that change or affect the build. Newest decision
 - **Pending:** your call.
 - **Superseded:** replaced by a later entry.
 
-Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
+Evidence for each decision is in `EVIDENCE.md` and `THREAT-MODEL.md`.
 
 ---
 
@@ -176,7 +176,7 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
   - The wall shows recent real pulls from Collector Crypt's public feed, loaded at runtime. No card art ships in the repo, and tiles are labelled by grade and value only.
   - Vite instead of Next.js: there's no server rendering to gain from, and it deploys as static files.
   - On testnet, sign-in is a key generated in the browser, with no seed phrase or popup. **Mainnet needs Privy** before real users can sign in.
-- **Status:** Adopted. Whether franchise art on the home page is acceptable for a public launch is an open question (see PLAN.md).
+- **Status:** Adopted. Whether franchise art on the home page is acceptable for a public launch is an open question.
 
 ### D-022 · 8 Nov · No Collector Crypt partnership, keys or contact during the build
 
@@ -266,7 +266,7 @@ Details live in `PLAN.md`, `CONTEXT.md` and `RESEARCH-FINDINGS.md`.
 - **Impact:**
   - Relayer and UI handle `core`.
   - Any other standard is shown as "withdraw only via Collector Crypt" and the transfer is blocked.
-  - The pNFT decision point in PLAN.md is retired.
+  - The pNFT decision point is retired.
 - **Status:** Adopted.
 
 ### D-011 · 5 Nov · Mintent-built Solana transactions use a durable nonce; CC-built ones retry on expiry

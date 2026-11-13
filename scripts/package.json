@@ -3,8 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "spike:sign": "tsx src/spike-s1-sign.ts",
-    "spike:contract": "tsx src/spike-s1-contract.ts",
     "deploy:testnet": "tsx src/deploy-testnet.ts",
     "demo:testnet": "tsx src/demo-testnet.ts",
     "verify:pull": "tsx src/verify-pull.ts",

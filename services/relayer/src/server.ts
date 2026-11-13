@@ -21,7 +21,7 @@ import { createKeeper, currentKeeperStatus } from "./keeper.js";
 import { createCardIndex } from "./card-index.js";
 import { createTestnetUpkeep, testPayLimits, testPayRefusal } from "./testnet-upkeep.js";
 
-/** Neutral names in our own UI: no franchise branding (see docs/PLAN.md). */
+/** Neutral names in our own UI: no franchise branding. */
 export function neutralPackName(price: number): string {
   return `$${price} Graded Card Pack`;
 }

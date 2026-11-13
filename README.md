@@ -166,9 +166,9 @@ node e2e/shots.mjs <screenshot-dir>   # every page at four screen sizes
 | `packages/shared` | Collector Crypt client, Solana derivation and transaction helpers |
 | `services/relayer` | Order pipeline, sell-back and withdrawal, cash-out, the Keeper, reconciliation, HTTP API |
 | `apps/web` | React and Vite web app |
-| `scripts` | `demo:testnet`, `verify:pull`, `verify:keeper`, account and key setup, and earlier feasibility spikes |
+| `scripts` | `demo:testnet`, `verify:pull`, `verify:keeper`, attack checks, and account, key and deployment setup |
 | `deploy` | Dockerfiles for hosting on Railway ([guide](docs/DEPLOY.md)) |
-| `docs` | [Evidence](docs/EVIDENCE.md), [threat model](docs/THREAT-MODEL.md), [decisions](docs/DECISIONS.md), [plan](docs/PLAN.md) |
+| `docs` | [Evidence](docs/EVIDENCE.md), [threat model](docs/THREAT-MODEL.md), [decisions](docs/DECISIONS.md), [deployment](docs/DEPLOY.md) |
 
 ## Limits
 

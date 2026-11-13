@@ -1,4 +1,4 @@
-// Per-network configuration. Every address here was verified: see docs/CONTEXT.md.
+// Per-network configuration. Every address here was verified against the live networks and services.
 import type { NearNetwork } from "./near.js";
 
 export interface MintentConfig {
